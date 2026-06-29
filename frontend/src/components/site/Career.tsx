@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Briefcase, MapPin, Clock, ArrowUpRight, X, Send } from 'lucide-react'
 import { toast } from 'sonner'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { settingsGetCareerHiring, applicationSubmit } from '../../server/auth.functions'
 
 interface Job {
   id: number
@@ -12,24 +14,12 @@ interface Job {
 }
 
 export default function Career() {
-  const [hiringActive, setHiringActive] = useState(true)
-
-  useEffect(() => {
-    const syncHiring = () => {
-      const stored = localStorage.getItem('mcs_global_career_hiring')
-      if (stored === 'false') {
-        setHiringActive(false)
-      } else {
-        setHiringActive(true)
-      }
-    }
-    syncHiring()
-    window.addEventListener('storage', syncHiring)
-    return () => window.removeEventListener('storage', syncHiring)
-  }, [])
+  const { data: hiringActive = true } = useQuery({
+    queryKey: ['settings', 'career_hiring'],
+    queryFn: () => settingsGetCareerHiring()
+  })
 
   const [activeJob, setActiveJob] = useState<Job | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -37,6 +27,33 @@ export default function Career() {
     resumeUrl: '',
     message: '',
   })
+
+  const submitMutation = useMutation({
+    mutationFn: (args: {
+      name: string
+      email: string
+      jobTitle: string
+      portfolioUrl: string
+      resumeUrl: string
+      coverLetter?: string
+    }) => applicationSubmit({ data: args }),
+    onSuccess: (res) => {
+      toast.success(`APPLICATION RECEIVED: SECURED APPLICATION ${res.id}. WE WILL REVIEW WITHIN 24 HOURS.`)
+      setFormData({
+        name: '',
+        email: '',
+        portfolioUrl: '',
+        resumeUrl: '',
+        message: '',
+      })
+      setActiveJob(null)
+    },
+    onError: (err: any) => {
+      toast.error(`SUBMISSION FAILED: ${err.message || 'Error occurred.'}`)
+    }
+  })
+
+  const isSubmitting = submitMutation.isPending
 
   const jobs: Job[] = [
     {
@@ -87,46 +104,14 @@ export default function Career() {
 
     if (!activeJob) return
 
-    setIsSubmitting(true)
-
-    // Simulate submission delay
-    setTimeout(() => {
-      setIsSubmitting(false)
-      const applicationId = `MCS-CAR-${Math.floor(100 + Math.random() * 900)}`
-      
-      const newApplication = {
-        id: applicationId,
-        name: formData.name,
-        email: formData.email,
-        portfolioUrl: formData.portfolioUrl,
-        resumeUrl: formData.resumeUrl,
-        message: formData.message,
-        jobTitle: activeJob.title,
-        status: 'REVIEWING',
-        createdAt: new Date().toISOString(),
-      }
-
-      // Save to local storage
-      const existing = localStorage.getItem('mcs_global_applications')
-      let applications = []
-      if (existing) {
-        try {
-          applications = JSON.parse(existing)
-        } catch (e) {}
-      }
-      applications.push(newApplication)
-      localStorage.setItem('mcs_global_applications', JSON.stringify(applications))
-
-      toast.success(`APPLICATION RECEIVED: SECURED APPLICATION ${applicationId}. WE WILL REVIEW WITHIN 24 HOURS.`)
-      setFormData({
-        name: '',
-        email: '',
-        portfolioUrl: '',
-        resumeUrl: '',
-        message: '',
-      })
-      setActiveJob(null)
-    }, 1500)
+    submitMutation.mutate({
+      name: formData.name,
+      email: formData.email,
+      jobTitle: activeJob.title,
+      portfolioUrl: formData.portfolioUrl,
+      resumeUrl: formData.resumeUrl,
+      coverLetter: formData.message
+    })
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {

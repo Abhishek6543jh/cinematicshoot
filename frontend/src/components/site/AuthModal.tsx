@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
-import { X, Smartphone, Mail, Lock, CheckCircle, ArrowLeft, Loader2 } from 'lucide-react'
+import { useState } from 'react'
+import { X, Mail, Lock, Loader2, User } from 'lucide-react'
 import { toast } from 'sonner'
-import { authLoginWithGoogle, authSendPhoneOtp, authVerifyPhoneOtp } from '../../server/auth.functions'
+import { supabase } from '../../utils/supabase'
 
 interface AuthModalProps {
   isOpen: boolean
@@ -10,118 +10,90 @@ interface AuthModalProps {
 }
 
 export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModalProps) {
-  const [flow, setFlow] = useState<'main' | 'google' | 'phone' | 'otp'>('main')
-  const [phoneNumber, setPhoneNumber] = useState('')
-  const [otp, setOtp] = useState<string[]>(Array(6).fill(''))
+  const [flow, setFlow] = useState<'email' | 'loading'>('email')
+  const [isSignup, setIsSignup] = useState(false)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [name, setName] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [countdown, setCountdown] = useState(30)
-  
-  const otpRefs = useRef<(HTMLInputElement | null)[]>([])
-
-  // Manage SMS countdown resend timer
-  useEffect(() => {
-    if (flow !== 'otp' || countdown <= 0) return
-    const timer = setInterval(() => setCountdown((c) => c - 1), 1000)
-    return () => clearInterval(timer)
-  }, [flow, countdown])
-
-  // Focus helper for OTP inputs
-  useEffect(() => {
-    if (flow === 'otp') {
-      otpRefs.current[0]?.focus()
-    }
-  }, [flow])
 
   if (!isOpen) return null
 
-  const handleGoogleLogin = async () => {
-    setIsSubmitting(true)
-    setFlow('google')
-    
-    try {
-      const user = await authLoginWithGoogle({
-        data: {
-          email: 'alex.maverick@gmail.com',
-          name: 'ALEX MAVERICK',
-          avatar: 'AM'
-        }
-      })
-      setIsSubmitting(false)
-      onLoginSuccess(user)
-      toast.success('GOOGLE AUTHENTICATION SUCCESSFUL. WELCOME BACK, ALEX.')
-      onClose()
-      setFlow('main')
-    } catch (e) {
-      setIsSubmitting(false)
-      toast.error('GOOGLE AUTHENTICATION FAILED. PLEASE TRY AGAIN.')
-      setFlow('main')
-    }
-  }
-
-  const handlePhoneSubmit = async (e: React.FormEvent) => {
+  const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!phoneNumber.trim()) {
-      toast.error('VALIDATION ERROR: PLEASE INPUT A VALID MOBILE NUMBER.')
+    if (!email.trim() || !password.trim()) {
+      toast.error('VALIDATION ERROR: PLEASE ENTER BOTH EMAIL AND PASSWORD.')
+      return
+    }
+    if (isSignup && !name.trim()) {
+      toast.error('VALIDATION ERROR: PLEASE ENTER YOUR NAME.')
+      return
+    }
+    if (password.length < 6) {
+      toast.error('VALIDATION ERROR: PASSWORD MUST BE AT LEAST 6 CHARACTERS.')
       return
     }
 
     setIsSubmitting(true)
 
     try {
-      const res = await authSendPhoneOtp({ data: { phone: phoneNumber } })
+      if (isSignup) {
+        // Sign Up
+        const { data, error } = await supabase.auth.signUp({
+          email: email.toLowerCase(),
+          password,
+          options: {
+            data: {
+              name: name.trim(),
+              role: 'CUSTOMER'
+            }
+          }
+        })
+        if (error) throw error
+        
+        setIsSubmitting(false)
+        if (data.user) {
+          toast.success('REGISTRATION COMPLETED successfully!')
+          onLoginSuccess({
+            name: name.trim(),
+            email: email.toLowerCase(),
+            avatar: name.slice(0, 2).toUpperCase()
+          })
+          onClose()
+          resetForm()
+        }
+      } else {
+        // Sign In
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email.toLowerCase(),
+          password
+        })
+        if (error) throw error
+        
+        setIsSubmitting(false)
+        if (data.user) {
+          toast.success('PORTAL ACCESS GRANTED. SESSION ESTABLISHED.')
+          onLoginSuccess({
+            name: data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'User',
+            email: data.user.email || '',
+            avatar: (data.user.user_metadata?.name || 'US').slice(0, 2).toUpperCase()
+          })
+          onClose()
+          resetForm()
+        }
+      }
+    } catch (e: any) {
       setIsSubmitting(false)
-      setFlow('otp')
-      setCountdown(30)
-      toast.success(`SMS DISPATCHED: SECURE OTP TRANSMITTED. (Dev OTP: ${res.code})`)
-    } catch (e) {
-      setIsSubmitting(false)
-      toast.error('ERROR DISPATCHING OTP. PLEASE TRY AGAIN.')
+      toast.error(`AUTHENTICATION ERROR: ${e.message || 'Invalid credentials.'}`)
     }
   }
 
-  const handleOtpChange = (value: string, idx: number) => {
-    if (isNaN(Number(value))) return
-    const newOtp = [...otp]
-    newOtp[idx] = value.slice(-1)
-    setOtp(newOtp)
-
-    // Move focus to next input
-    if (value && idx < 5) {
-      otpRefs.current[idx + 1]?.focus()
-    }
-
-    // Auto submit OTP when fully filled
-    if (newOtp.every(val => val !== '')) {
-      verifyOtp(newOtp.join(''))
-    }
-  }
-
-  const handleOtpKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, idx: number) => {
-    if (e.key === 'Backspace' && !otp[idx] && idx > 0) {
-      const newOtp = [...otp]
-      newOtp[idx - 1] = ''
-      setOtp(newOtp)
-      otpRefs.current[idx - 1]?.focus()
-    }
-  }
-
-  const verifyOtp = async (code: string) => {
-    setIsSubmitting(true)
-
-    try {
-      const user = await authVerifyPhoneOtp({ data: { phone: phoneNumber, code } })
-      setIsSubmitting(false)
-      onLoginSuccess(user)
-      toast.success('MOBILE AUTHENTICATION SUCCESSFUL. SECURE SESSION ESTABLISHED.')
-      onClose()
-      // reset states
-      setFlow('main')
-      setPhoneNumber('')
-      setOtp(Array(6).fill(''))
-    } catch (e) {
-      setIsSubmitting(false)
-      toast.error('VERIFICATION ERROR: INVALID OR EXPIRED OTP.')
-    }
+  const resetForm = () => {
+    setFlow('email')
+    setEmail('')
+    setPassword('')
+    setName('')
+    setIsSignup(false)
   }
 
   return (
@@ -141,181 +113,121 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
           <X size={18} />
         </button>
 
-        {/* Back link for sub-flows */}
-        {flow !== 'main' && !isSubmitting && (
-          <button
-            onClick={() => {
-              setFlow('main')
-              setOtp(Array(6).fill(''))
-            }}
-            className="absolute top-4 left-4 text-neutral-500 hover:text-neon transition-colors flex items-center gap-1 cursor-pointer font-heading text-[9px] font-black tracking-widest uppercase"
-          >
-            <ArrowLeft size={10} /> BACK
-          </button>
-        )}
-
         {/* Dynamic Headers */}
-        {flow === 'main' && (
+        {flow === 'loading' ? (
           <>
             <h3 className="font-heading text-lg font-black text-silver tracking-widest uppercase mb-2">
-              MCS AUTHENTICATION
-            </h3>
-            <p className="font-sans text-xs text-neutral-400 mb-8 uppercase tracking-wider">
-              ESTABLISH A PRIVILEGED DIRECTORS PORTAL SESSION
-            </p>
-          </>
-        )}
-
-        {flow === 'google' && (
-          <>
-            <h3 className="font-heading text-lg font-black text-silver tracking-widest uppercase mb-2">
-              RESOLVING GOOGLE AUTH
+              RESOLVING TOKENS
             </h3>
             <p className="font-sans text-xs text-neutral-400 mb-8 uppercase tracking-wider">
               AUTHORIZING DECENTRALIZED PROTOCOL...
             </p>
           </>
-        )}
-
-        {flow === 'phone' && (
+        ) : (
           <>
             <h3 className="font-heading text-lg font-black text-silver tracking-widest uppercase mb-2">
-              MOBILE SIGN IN
+              {isSignup ? 'CREATE ACCOUNT' : 'MCS AUTHENTICATION'}
             </h3>
             <p className="font-sans text-xs text-neutral-400 mb-8 uppercase tracking-wider">
-              ENTER MOBILE LINE NUMBER FOR SMS TRANSMISSION
+              {isSignup ? 'REGISTER A SECURE CLIENT PROFILE' : 'ESTABLISH A PRIVILEGED DIRECTORS PORTAL SESSION'}
             </p>
           </>
         )}
 
-        {flow === 'otp' && (
-          <>
-            <h3 className="font-heading text-lg font-black text-silver tracking-widest uppercase mb-2">
-              VERIFY DIGITAL OTP
-            </h3>
-            <p className="font-sans text-xs text-neutral-400 mb-8 uppercase tracking-wider">
-              TRANSMIT 6-DIGIT CODE DISPATCHED TO {phoneNumber}
-            </p>
-          </>
-        )}
-
-        {/* Content Screens */}
-        {flow === 'main' && (
-          <div className="space-y-4">
-            {/* Google Authentication */}
-            <button
-              onClick={handleGoogleLogin}
-              className="w-full py-4 glass border border-white/10 font-heading text-xs font-black tracking-widest text-silver hover:border-neon hover:text-neon transition-all duration-300 flex items-center justify-center gap-3 cursor-pointer group"
-            >
-              <div className="w-5 h-5 rounded-full bg-white/5 flex items-center justify-center text-silver group-hover:text-neon transition-colors duration-300">
-                <span className="font-bold text-xs">G</span>
-              </div>
-              CONTINUE WITH GOOGLE
-            </button>
-
-            {/* Mobile OTP Authentication */}
-            <button
-              onClick={() => setFlow('phone')}
-              className="w-full py-4 glass border border-white/10 font-heading text-xs font-black tracking-widest text-silver hover:border-neon hover:text-neon transition-all duration-300 flex items-center justify-center gap-3 cursor-pointer"
-            >
-              <Smartphone size={14} className="text-silver hover:text-neon transition-colors duration-300" />
-              CONTINUE WITH MOBILE NUMBER
-            </button>
-          </div>
-        )}
-
-        {/* Google Loader Screen */}
-        {flow === 'google' && isSubmitting && (
+        {/* Loading Screen */}
+        {flow === 'loading' && (
           <div className="py-8 flex flex-col items-center justify-center gap-4">
             <Loader2 className="text-neon animate-spin" size={36} />
             <span className="font-heading text-[10px] font-black tracking-widest text-neon uppercase animate-pulse">
-              RESOLVING SECURE TOKENS...
+              CONTACTING AUTH SERVICE...
             </span>
           </div>
         )}
 
-        {/* Mobile Number Entry Screen */}
-        {flow === 'phone' && (
-          <form onSubmit={handlePhoneSubmit} className="space-y-6">
-            <div className="flex flex-col gap-2 text-left">
+        {/* Email Entry Screen */}
+        {flow === 'email' && (
+          <form onSubmit={handleEmailSubmit} className="space-y-4 text-left">
+            {isSignup && (
+              <div className="flex flex-col gap-1">
+                <label className="font-heading text-[9px] font-black tracking-widest text-neutral-500 uppercase">
+                  FULL NAME *
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-3 text-neutral-600" size={16} />
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Enter your name"
+                    className="bg-black border border-white/10 pl-10 pr-4 py-3.5 text-sm font-sans tracking-wide text-silver focus:border-neon focus:outline-none transition-colors duration-300 w-full"
+                    required
+                    disabled={isSubmitting}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-1">
               <label className="font-heading text-[9px] font-black tracking-widest text-neutral-500 uppercase">
-                MOBILE PHONE NUMBER *
+                EMAIL ADDRESS *
               </label>
-              <input
-                type="tel"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                placeholder="+1 (555) 000-0000"
-                className="bg-black border border-white/10 p-3.5 text-sm font-sans tracking-wide text-silver focus:border-neon focus:outline-none transition-colors duration-300 text-center w-full"
-                required
-                disabled={isSubmitting}
-              />
+              <div className="relative">
+                <Mail className="absolute left-3 top-3 text-neutral-600" size={16} />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="director@mrcinematic.com"
+                  className="bg-black border border-white/10 pl-10 pr-4 py-3.5 text-sm font-sans tracking-wide text-silver focus:border-neon focus:outline-none transition-colors duration-300 w-full"
+                  required
+                  disabled={isSubmitting}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="font-heading text-[9px] font-black tracking-widest text-neutral-500 uppercase">
+                SECURE PASSWORD *
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-3 text-neutral-600" size={16} />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="bg-black border border-white/10 pl-10 pr-4 py-3.5 text-sm font-sans tracking-wide text-silver focus:border-neon focus:outline-none transition-colors duration-300 w-full"
+                  required
+                  disabled={isSubmitting}
+                />
+              </div>
             </div>
 
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-4 bg-neon text-black font-heading text-xs font-black tracking-widest uppercase hover:neon-glow transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              className="w-full mt-4 py-4 bg-neon text-black font-heading text-xs font-black tracking-widest uppercase hover:neon-glow transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {isSubmitting ? (
                 <>
                   <Loader2 className="animate-spin" size={14} />
-                  DISPATCHING OTP...
+                  PROCESSING...
                 </>
               ) : (
-                'SEND VERIFICATION CODE'
+                isSignup ? 'CREATE ACCOUNT' : 'SECURE SIGN IN'
               )}
             </button>
-          </form>
-        )}
 
-        {/* OTP Input Screen */}
-        {flow === 'otp' && (
-          <div className="space-y-6">
-            {/* 6 Grid Inputs */}
-            <div className="flex justify-center gap-2 md:gap-3">
-              {otp.map((digit, idx) => (
-                <input
-                  key={idx}
-                  ref={(el) => { otpRefs.current[idx] = el }}
-                  type="text"
-                  maxLength={1}
-                  value={digit}
-                  onChange={(e) => handleOtpChange(e.target.value, idx)}
-                  onKeyDown={(e) => handleOtpKeyDown(e, idx)}
-                  disabled={isSubmitting}
-                  className="w-12 h-14 bg-black border border-white/10 text-center font-heading text-xl font-black text-neon focus:border-neon focus:outline-none transition-all duration-300"
-                />
-              ))}
+            <div className="pt-2 text-center">
+              <button
+                type="button"
+                onClick={() => setIsSignup(!isSignup)}
+                className="font-heading text-[9px] font-black tracking-widest text-neutral-500 hover:text-neon uppercase transition-colors duration-300 bg-transparent border-none cursor-pointer"
+              >
+                {isSignup ? 'ALREADY HAVE AN ACCOUNT? SIGN IN' : 'NO ACCOUNT? CREATE SECURE CLIENT PROFILE'}
+              </button>
             </div>
-
-            {/* Submitting Loading Status */}
-            {isSubmitting && (
-              <div className="flex items-center justify-center gap-2 font-heading text-[10px] font-black tracking-widest text-neon uppercase animate-pulse">
-                <Loader2 className="animate-spin" size={12} />
-                VERIFYING CODES...
-              </div>
-            )}
-
-            {/* Resend details */}
-            {!isSubmitting && (
-              <div className="pt-2 text-xs font-sans text-neutral-500 uppercase tracking-widest">
-                {countdown > 0 ? (
-                  `RESEND CODE IN ${countdown}S`
-                ) : (
-                  <button
-                    onClick={() => {
-                      setCountdown(30)
-                      toast.success('SMS RESENT: DISPATCHED OTP RETRANSMISSION.')
-                    }}
-                    className="text-neon hover:underline cursor-pointer bg-transparent border-0 font-bold"
-                  >
-                    RESEND SMS CODE
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+          </form>
         )}
 
       </div>

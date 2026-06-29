@@ -15,6 +15,7 @@ import {
 } from '../server/auth.functions'
 import Navbar from '../components/site/Navbar'
 import Floating from '../components/site/Floating'
+import type { Package } from '../server/db.server'
 
 export const Route = createFileRoute('/admin')({
   component: AdminPage,

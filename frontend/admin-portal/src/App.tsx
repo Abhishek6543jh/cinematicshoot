@@ -3,12 +3,26 @@ import {
   Lock, LogOut, Calendar, DollarSign, Users, 
   Clock, ExternalLink, Search, 
   Check, Activity, FileText, Trash2,
-  Database, Upload, Download, X, Plus, Globe, Play, Edit
+  Database, Upload, Download, X, Plus, Globe, Edit
 } from 'lucide-react'
 import { Toaster, toast } from 'sonner'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
+import { createClient } from '@supabase/supabase-js'
+
+// Initialize client-side Supabase client using anon key
+const supabaseUrl = 'https://ahvhbuincvxhewxdkekr.supabase.co'
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFodmhidWluY3Z4aGV3eGRrZWtyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3MzA3NTksImV4cCI6MjA5NjMwNjc1OX0.FivI4jEYzjg0XRgIfAJ1udeEsoxWsTNSev7cUJ8fgLM'
+const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+// Helper to generate UUIDs
+function uuidv4() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
 
 // Type Definitions
 interface Booking {
@@ -46,6 +60,8 @@ interface Application {
 }
 
 interface TeamMember {
+  id?: string
+  email?: string
   name: string
   role: string
   specialty: string
@@ -70,7 +86,7 @@ export default function App() {
   // Credentials input
   const [adminEmail, setAdminEmail] = useState('')
   const [adminPasscode, setAdminPasscode] = useState('')
-  const [crewSelect, setCrewSelect] = useState('')
+  const [crewSelect, setCrewSelect] = useState('') // stores crew email
   const [crewPasscode, setCrewPasscode] = useState('')
   
   // Dashboard state tabs
@@ -78,44 +94,179 @@ export default function App() {
   
   // Local Database States
   const [bookings, setBookings] = useState<Booking[]>([])
-  const [applications, setApplications] = useState<Application[]>([])
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
-  
-  // Website configuration states
+  const [applications, setApplications] = useState<Application[]>([])
   const [careerHiring, setCareerHiring] = useState(true)
   const [servicePrices, setServicePrices] = useState<Record<string, number>>({})
   const [reels, setReels] = useState<ReelItem[]>([])
   
-  // Service pricing edits
+  // website config forms
   const [editingPrices, setEditingPrices] = useState<Record<string, number>>({})
-
-  // Reel Form Modal states
+  
+  // Reels modal state
   const [showReelModal, setShowReelModal] = useState(false)
   const [reelEditId, setReelEditId] = useState<number | null>(null)
-  const [reelFormTitle, setReelFormTitle] = useState('')
-  const [reelFormVideoUrl, setReelFormVideoUrl] = useState('')
-  const [reelFormViews, setReelFormViews] = useState('')
-  const [reelFormLikes, setReelFormLikes] = useState('')
-
-  // Modals & UI controls
-  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
+  const [newReelTitle, setNewReelTitle] = useState('')
+  const [newReelUrl, setNewReelUrl] = useState('')
+  
+  // Add Crew modal state
   const [showAddCrewModal, setShowAddCrewModal] = useState(false)
   const [newCrewName, setNewCrewName] = useState('')
+  const [newCrewEmail, setNewCrewEmail] = useState('')
+  const [newCrewPassword, setNewCrewPassword] = useState('')
   const [newCrewRole, setNewCrewRole] = useState('')
   const [newCrewSpecialty, setNewCrewSpecialty] = useState('')
+  const [newCrewRate, setNewCrewRate] = useState('2000')
+
+  // Hire Creator modal state
+  const [showHireModal, setShowHireModal] = useState(false)
+  const [hireAppId, setHireAppId] = useState('')
+  const [hireName, setHireName] = useState('')
+  const [hireEmail, setHireEmail] = useState('')
+  const [hirePassword, setHirePassword] = useState('')
+  const [hireSpecialty, setHireSpecialty] = useState('')
+  const [hireHourlyRate, setHireHourlyRate] = useState('2000')
   
-  // Search & Filters (Admin Bookings)
+  // Selected Booking modal state
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
+  
+  // Filters state
   const [bookingSearch, setBookingSearch] = useState('')
   const [bookingFilterStatus, setBookingFilterStatus] = useState('ALL')
   const [bookingFilterService, setBookingFilterService] = useState('ALL')
-
-  // JSON Data Sync inputs
-  const [importText, setImportText] = useState('')
+  
+  // Database sync modal
   const [showSyncModal, setShowSyncModal] = useState(false)
+  const [importText, setImportText] = useState('')
 
-  // Seed databases on mount
+  // Load database from Supabase
+  const loadDatabase = async () => {
+    try {
+      // 1. Fetch bookings (join with creator)
+      const { data: bookingsData, error: bookingsError } = await supabase
+        .from('bookings')
+        .select('*, creator:users!bookings_assigned_creator_id_fkey(name)')
+        .order('created_at', { ascending: false })
+      if (bookingsError) throw bookingsError
+      
+      if (bookingsData) {
+        const mappedBookings = bookingsData.map((b: any) => {
+          return {
+            id: b.id,
+            name: b.client_name,
+            email: b.client_email,
+            service: b.service,
+            date: b.date,
+            message: b.special_requirements || '',
+            status: b.status,
+            assignedTo: b.creator?.name || 'UNASSIGNED',
+            price: Number(b.price || 6000),
+            paymentStatus: b.payment_status,
+            createdAt: b.created_at,
+            locationState: b.location_state || '',
+            locationDistrict: b.location_district || '',
+            locationArea: b.location_area || '',
+            locationVenue: b.location_venue || '',
+            phoneCode: b.phone_code || '+91',
+            phoneNumber: b.client_phone || '',
+            preferredTime: b.preferred_time || '',
+            pincode: b.pincode || ''
+          }
+        })
+        setBookings(mappedBookings)
+      }
+
+      // 2. Fetch team members (creators)
+      const { data: creatorsData, error: creatorsError } = await supabase
+        .from('users')
+        .select('*, profiles(*)')
+        .eq('role', 'CREATOR')
+      
+      if (creatorsError) throw creatorsError
+      
+      if (creatorsData) {
+        const mappedCreators = await Promise.all(creatorsData.map(async (c: any) => {
+          const profile = c.profiles || {}
+          // Count active shoots
+          const { count } = await supabase
+            .from('bookings')
+            .select('*', { count: 'exact', head: true })
+            .eq('assigned_creator_id', c.id)
+            .in('status', ['Confirmed', 'In Progress'])
+          
+          return {
+            id: c.id,
+            email: c.email,
+            name: c.name,
+            role: profile.specialty || 'Visual Creator',
+            specialty: profile.specialty || 'Visual Creator',
+            activeShoots: count || 0,
+            availability: profile.availability || 'AVAILABLE'
+          }
+        }))
+        setTeamMembers(mappedCreators)
+      }
+
+      // 3. Fetch applications
+      const { data: appsData, error: appsError } = await supabase
+        .from('applications')
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (appsError) throw appsError
+      
+      if (appsData) {
+        setApplications(appsData.map((a: any) => ({
+          id: a.id,
+          name: a.name,
+          email: a.email,
+          portfolioUrl: a.portfolio_url || '',
+          resumeUrl: a.resume_url || '',
+          message: a.cover_letter || '',
+          jobTitle: a.job_title,
+          status: a.status,
+          createdAt: a.created_at
+        })))
+      }
+
+      // 4. Fetch website settings
+      const { data: hiringSetting } = await supabase
+        .from('website_settings')
+        .select('value')
+        .eq('key', 'career_hiring')
+        .maybeSingle()
+      if (hiringSetting) {
+        setCareerHiring(hiringSetting.value === true)
+      }
+
+      const { data: pricesData } = await supabase
+        .from('packages')
+        .select('name, price')
+      if (pricesData) {
+        const prices: Record<string, number> = {}
+        pricesData.forEach((p: any) => {
+          prices[p.name] = Number(p.price)
+        })
+        setServicePrices(prices)
+        setEditingPrices(prices)
+      }
+
+      // 5. Fetch reels
+      const { data: reelsData } = await supabase
+        .from('reels')
+        .select('*')
+        .order('id', { ascending: true })
+      if (reelsData) {
+        setReels(reelsData)
+      }
+    } catch (err: any) {
+      console.error('Database load error:', err)
+      toast.error('FAILED TO CONNECT TO SUPABASE DATABASE.')
+    }
+  }
+
+  // Load Session and DB records on Mount
   useEffect(() => {
-    // 1. Restore auth state if page refreshes
     const savedRole = sessionStorage.getItem('mcs_ops_role')
     const savedCrew = sessionStorage.getItem('mcs_ops_crew_name')
     if (savedRole === 'ADMIN') {
@@ -125,267 +276,64 @@ export default function App() {
       setActiveCrewName(savedCrew)
     }
 
-    const loadLocalDatabase = () => {
-      // 2. Seed Team Members
-      const defaultTeam: TeamMember[] = [
-        { name: 'Aiden Maverick', role: 'Lead DP / Visual Director', specialty: 'Luxury Cars & Reels', activeShoots: 1, availability: 'AVAILABLE' },
-        { name: 'Sarah Vance', role: 'Senior Editorial Photographer', specialty: 'Fashion & Weddings', activeShoots: 1, availability: 'AVAILABLE' },
-        { name: 'Dave Miller', role: 'Director of Photography', specialty: 'Commercial Scale Campaigns', activeShoots: 1, availability: 'ON SHOOT' },
-        { name: 'Nate Cross', role: 'Gaffer & Lighting Lead', specialty: 'Lighting Design & Rigging', activeShoots: 0, availability: 'AVAILABLE' },
-      ]
-      const storedTeam = localStorage.getItem('mcs_global_team')
-      if (!storedTeam) {
-        localStorage.setItem('mcs_global_team', JSON.stringify(defaultTeam))
-        setTeamMembers(defaultTeam)
-      } else {
-        try { setTeamMembers(JSON.parse(storedTeam)) } catch(e) { setTeamMembers(defaultTeam) }
-      }
-
-      // 3. Seed Bookings
-      const mockBookings: Booking[] = [
-        {
-          id: 'MCS-B-4821',
-          name: 'ARIA STERLING BRAND',
-          email: 'collab@ariasterling.com',
-          service: 'INFLUENCER BRANDING',
-          date: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0], // 2 days from now
-          message: 'Sunset penthouse photoshoot with luxury styling and neon color grading. 5-post content batch.',
-          status: 'CONFIRMED',
-          assignedTo: 'Aiden Maverick',
-          price: 6000,
-          paymentStatus: 'PAID',
-          createdAt: new Date(Date.now() - 86400000).toISOString(),
-          locationState: 'Maharashtra',
-          locationDistrict: 'Mumbai',
-          locationArea: 'Bandra West',
-          locationVenue: 'Bandra Penthouse, Carter Road',
-          phoneCode: '+91',
-          phoneNumber: '9876543210',
-          preferredTime: 'Evening (4 PM - 7 PM)',
-          pincode: '400050'
-        },
-        {
-          id: 'MCS-B-9238',
-          name: 'APEX AUTOMOTIVE',
-          email: 'media@apexauto.io',
-          service: 'LUXURY AUTOMOTIVE',
-          date: new Date().toISOString().split('T')[0], // today
-          message: 'Midnight tracking shots of carbon matte-black supercar in downtown warehouse district.',
-          status: 'CONFIRMED',
-          assignedTo: 'Dave Miller',
-          price: 10000,
-          paymentStatus: 'PENDING',
-          createdAt: new Date(Date.now() - 172800000).toISOString(),
-          locationState: 'Karnataka',
-          locationDistrict: 'Bengaluru Urban',
-          locationArea: 'Whitefield',
-          locationVenue: 'Warehouse 4B, Hoodi Industrial Area',
-          phoneCode: '+91',
-          phoneNumber: '9123456789',
-          preferredTime: 'Anytime',
-          pincode: '560048'
-        },
-        {
-          id: 'MCS-B-3109',
-          name: 'ZARA COUTURE LTD',
-          email: 'campaigns@zara.co.uk',
-          service: 'EDITORIAL FASHION',
-          date: new Date(Date.now() + 86400000 * 5).toISOString().split('T')[0], // 5 days from now
-          message: 'High-contrast neon alleyway fashion shoot showcasing Fall leather jacket collection.',
-          status: 'PENDING DIRECTORS REVIEW',
-          assignedTo: 'UNASSIGNED',
-          price: 14000,
-          paymentStatus: 'PENDING',
-          createdAt: new Date().toISOString(),
-          locationState: 'Delhi',
-          locationDistrict: 'New Delhi',
-          locationArea: 'Connaught Place',
-          locationVenue: 'Inner Circle Alleyway',
-          phoneCode: '+91',
-          phoneNumber: '8888888888',
-          preferredTime: 'Afternoon (12 PM - 4 PM)',
-          pincode: '110001'
-        },
-        {
-          id: 'MCS-B-5561',
-          name: 'LUXE VILLA RESORTS',
-          email: 'press@luxevillas.com',
-          service: 'COMMERCIAL CAMPAIGNS',
-          date: new Date(Date.now() + 86400000 * 10).toISOString().split('T')[0], // 10 days from now
-          message: 'Premium property video reel and 4K marketing spreads. Drone coverage needed.',
-          status: 'CONFIRMED',
-          assignedTo: 'Sarah Vance',
-          price: 50000,
-          paymentStatus: 'PENDING',
-          createdAt: new Date(Date.now() - 259200000).toISOString(),
-          locationState: 'Goa',
-          locationDistrict: 'North Goa',
-          locationArea: 'Anjuna',
-          locationVenue: 'Luxe Cliffside Villa',
-          phoneCode: '+91',
-          phoneNumber: '7777777777',
-          preferredTime: 'Morning (9 AM - 12 PM)',
-          pincode: '403509'
-        }
-      ]
-      const storedBookings = localStorage.getItem('mcs_global_bookings')
-      let parsedBookings: Booking[] = []
-      if (!storedBookings) {
-        localStorage.setItem('mcs_global_bookings', JSON.stringify(mockBookings))
-        parsedBookings = mockBookings
-      } else {
-        try {
-          const parsed = JSON.parse(storedBookings)
-          parsedBookings = parsed.map((pb: Booking) => {
-            const match = mockBookings.find(mb => mb.id === pb.id)
-            if (match && !pb.locationState) {
-              return { ...pb, ...match }
-            }
-            return pb
-          })
-          localStorage.setItem('mcs_global_bookings', JSON.stringify(parsedBookings))
-        } catch (e) {
-          parsedBookings = mockBookings
-        }
-      }
-      setBookings(parsedBookings)
-
-      // 4. Seed Applications
-      const mockApps: Application[] = [
-        {
-          id: 'MCS-CAR-102',
-          name: 'MARCUS BELLINGHAM',
-          email: 'marcus.dp@gmail.com',
-          portfolioUrl: 'https://behance.net/marcusdp',
-          resumeUrl: 'https://drive.google.com/marcus-cv.pdf',
-          message: 'I handle RED Ranger and Alexa Mini LF packages. Specialized in luxury automotive commercial sequences.',
-          jobTitle: 'DIRECTOR OF PHOTOGRAPHY',
-          status: 'PENDING REVIEW',
-          createdAt: new Date(Date.now() - 86400000 * 3).toISOString()
-        }
-      ]
-      const storedApps = localStorage.getItem('mcs_global_applications')
-      if (!storedApps) {
-        localStorage.setItem('mcs_global_applications', JSON.stringify(mockApps))
-        setApplications(mockApps)
-      } else {
-        try { setApplications(JSON.parse(storedApps)) } catch(e) { setApplications(mockApps) }
-      }
-
-      // 5. Seed Career Hiring
-      const storedHiring = localStorage.getItem('mcs_global_career_hiring')
-      if (storedHiring === null) {
-        localStorage.setItem('mcs_global_career_hiring', 'true')
-        setCareerHiring(true)
-      } else {
-        setCareerHiring(storedHiring !== 'false')
-      }
-
-      // 6. Seed Service Prices
-      const defaultPrices: Record<string, number> = {
-        'CINEMATIC REELS (9:16)': 2000,
-        'INFLUENCER BRANDING': 6000,
-        'LUXURY AUTOMOTIVE': 10000,
-        'EDITORIAL FASHION': 14000,
-        'CINEMATIC WEDDINGS': 30000,
-        'COMMERCIAL CAMPAIGNS': 50000,
-      }
-      const storedPrices = localStorage.getItem('mcs_global_service_prices')
-      if (!storedPrices) {
-        localStorage.setItem('mcs_global_service_prices', JSON.stringify(defaultPrices))
-        setServicePrices(defaultPrices)
-        setEditingPrices(defaultPrices)
-      } else {
-        try {
-          const parsed = JSON.parse(storedPrices)
-          setServicePrices(parsed)
-          setEditingPrices(parsed)
-        } catch (e) {
-          setServicePrices(defaultPrices)
-          setEditingPrices(defaultPrices)
-        }
-      }
-
-      // 7. Seed Reels
-      const defaultReels: ReelItem[] = [
-        {
-          id: 0,
-          title: 'Midnight Stealth Car Commercial',
-          videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-black-car-driving-along-a-street-at-night-42277-large.mp4',
-          views: '1.2M',
-          likes: '142K',
-        },
-        {
-          id: 1,
-          title: 'Vaporwave Cyberpunk Portrait',
-          videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-with-neon-makeup-looking-at-camera-39906-large.mp4',
-          views: '840K',
-          likes: '95K',
-        },
-        {
-          id: 2,
-          title: 'Tokyo Nocturnal Neon Drive',
-          videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-neon-lights-of-tokyo-streets-40763-large.mp4',
-          views: '2.4M',
-          likes: '310K',
-        },
-        {
-          id: 3,
-          title: 'Influencer Vlogging Behind Scenes',
-          videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-woman-recording-herself-with-a-smartphone-43034-large.mp4',
-          views: '620K',
-          likes: '78K',
-        },
-      ]
-      const storedReels = localStorage.getItem('mcs_global_reels')
-      if (!storedReels) {
-        localStorage.setItem('mcs_global_reels', JSON.stringify(defaultReels))
-        setReels(defaultReels)
-      } else {
-        try { setReels(JSON.parse(storedReels)) } catch (e) { setReels(defaultReels) }
-      }
-    }
-
-    loadLocalDatabase()
-
-    // Listen to changes in other tabs
-    window.addEventListener('storage', loadLocalDatabase)
-    return () => window.removeEventListener('storage', loadLocalDatabase)
+    loadDatabase()
   }, [])
 
   // Handle Authentication Logins
-  const handleAdminLogin = (e: React.FormEvent) => {
+  const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (adminEmail.trim().toLowerCase() !== 'admin@mrcinematic.com') {
-      toast.error('Sign In Failed: Invalid administrator email.')
-      return
-    }
-    if (adminPasscode !== 'cinema2026') {
-      toast.error('Sign In Failed: Incorrect administrator passcode.')
-      return
-    }
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', adminEmail.trim().toLowerCase())
+        .eq('password', adminPasscode)
+        .eq('role', 'ADMIN')
+        .maybeSingle()
+      
+      if (error || !data) {
+        toast.error('Sign In Failed: Invalid administrator credentials.')
+        return
+      }
 
-    setAuthRole('ADMIN')
-    sessionStorage.setItem('mcs_ops_role', 'ADMIN')
-    toast.success('Administrator session established successfully.')
+      setAuthRole('ADMIN')
+      sessionStorage.setItem('mcs_ops_role', 'ADMIN')
+      await loadDatabase()
+      toast.success('Administrator session established successfully.')
+    } catch (err) {
+      toast.error('Authentication process encountered an error.')
+    }
   }
 
-  const handleCrewLogin = (e: React.FormEvent) => {
+  const handleCrewLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!crewSelect) {
-      toast.error('Access Denied: Please select your partner identity.')
+      toast.error('Access Denied: Please enter your partner email.')
       return
     }
-    if (crewPasscode !== 'crew2026') {
-      toast.error('Access Denied: Invalid security passcode.')
-      return
-    }
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', crewSelect.trim().toLowerCase())
+        .eq('password', crewPasscode)
+        .eq('role', 'CREATOR')
+        .maybeSingle()
+      
+      if (error || !data) {
+        toast.error('Access Denied: Invalid security credentials.')
+        return
+      }
 
-    setAuthRole('CREW')
-    setActiveCrewName(crewSelect)
-    sessionStorage.setItem('mcs_ops_role', 'CREW')
-    sessionStorage.setItem('mcs_ops_crew_name', crewSelect)
-    toast.success(`Welcome back, ${crewSelect}. Portal dispatch loaded.`)
+      setAuthRole('CREW')
+      setActiveCrewName(data.name)
+      sessionStorage.setItem('mcs_ops_role', 'CREW')
+      sessionStorage.setItem('mcs_ops_crew_name', data.name)
+      await loadDatabase()
+      toast.success(`Welcome back, ${data.name}. Portal dispatch loaded.`)
+    } catch (err) {
+      toast.error('Error connecting to authentication servers.')
+    }
   }
 
   const handleLogout = () => {
@@ -397,105 +345,172 @@ export default function App() {
   }
 
   // Admin roster operations
-  const handleAddCrew = (e: React.FormEvent) => {
+  const handleAddCrew = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newCrewName || !newCrewRole) {
-      toast.error('Please enter name and role.')
+    if (!newCrewName || !newCrewRole || !newCrewEmail || !newCrewPassword) {
+      toast.error('Please enter name, email, password, and role.')
       return
     }
 
-    const newMember: TeamMember = {
-      name: newCrewName,
-      role: newCrewRole,
-      specialty: newCrewSpecialty || 'General Photography & Reels',
-      activeShoots: 0,
-      availability: 'AVAILABLE'
+    try {
+      const creatorId = uuidv4()
+      // Insert user
+      const { error: userError } = await supabase
+        .from('users')
+        .insert({
+          id: creatorId,
+          email: newCrewEmail.toLowerCase(),
+          name: newCrewName,
+          role: 'CREATOR',
+          password: newCrewPassword
+        })
+      if (userError) throw userError
+
+      // Insert profile
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          user_id: creatorId,
+          specialty: newCrewSpecialty || newCrewRole,
+          availability: 'AVAILABLE',
+          hourly_rate: Number(newCrewRate)
+        })
+      if (profileError) throw profileError
+
+      toast.success(`${newCrewName} added to the operational team.`)
+      
+      // Reset modal
+      setNewCrewName('')
+      setNewCrewEmail('')
+      setNewCrewPassword('')
+      setNewCrewRole('')
+      setNewCrewSpecialty('')
+      setNewCrewRate('2000')
+      setShowAddCrewModal(false)
+      loadDatabase()
+    } catch (err: any) {
+      toast.error(`Crew enrollment failed: ${err.message}`)
     }
-
-    const updated = [...teamMembers, newMember]
-    localStorage.setItem('mcs_global_team', JSON.stringify(updated))
-    setTeamMembers(updated)
-    toast.success(`${newCrewName} added to the operational team.`)
-    
-    // Reset modal
-    setNewCrewName('')
-    setNewCrewRole('')
-    setNewCrewSpecialty('')
-    setShowAddCrewModal(false)
   }
 
-  const handleDeleteCrew = (name: string) => {
+  const handleDeleteCrew = async (id: string, name: string) => {
     if (!window.confirm(`Are you sure you want to remove ${name} from the active roster?`)) return
-    const updated = teamMembers.filter(t => t.name !== name)
-    localStorage.setItem('mcs_global_team', JSON.stringify(updated))
-    setTeamMembers(updated)
-    toast.success(`Removed ${name} from roster database.`)
+    try {
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', id)
+      if (error) throw error
+      toast.success(`${name} removed from roster.`)
+      loadDatabase()
+    } catch (err: any) {
+      toast.error(`Roster removal failed: ${err.message}`)
+    }
   }
 
-  const handleToggleCrewAvailabilityAdmin = (name: string) => {
-    const updated = teamMembers.map(t => {
-      if (t.name === name) {
-        const next: Record<string, 'AVAILABLE' | 'ON SHOOT' | 'LEAVE'> = {
-          'AVAILABLE': 'ON SHOOT',
-          'ON SHOOT': 'LEAVE',
-          'LEAVE': 'AVAILABLE'
-        }
-        return { ...t, availability: next[t.availability] || 'AVAILABLE' }
-      }
-      return t
-    })
-    localStorage.setItem('mcs_global_team', JSON.stringify(updated))
-    setTeamMembers(updated)
-    toast.success(`Availability status modified.`)
+  const handleToggleCrewAvailabilityAdmin = async (creatorId: string, currentAvailability: string) => {
+    const nextAvail: Record<string, 'AVAILABLE' | 'ON SHOOT' | 'LEAVE'> = {
+      'AVAILABLE': 'ON SHOOT',
+      'ON SHOOT': 'LEAVE',
+      'LEAVE': 'AVAILABLE'
+    }
+    const next = nextAvail[currentAvailability] || 'AVAILABLE'
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ availability: next })
+        .eq('user_id', creatorId)
+      if (error) throw error
+      loadDatabase()
+    } catch (err: any) {
+      toast.error(`Availability update failed: ${err.message}`)
+    }
   }
 
-  // Partner portal status toggle
-  const handleToggleMyAvailability = () => {
-    const updated = teamMembers.map(t => {
-      if (t.name.toLowerCase() === activeCrewName.toLowerCase()) {
-        const next: Record<string, 'AVAILABLE' | 'ON SHOOT' | 'LEAVE'> = {
-          'AVAILABLE': 'ON SHOOT',
-          'ON SHOOT': 'LEAVE',
-          'LEAVE': 'AVAILABLE'
-        }
-        const nextStatus = next[t.availability] || 'AVAILABLE'
-        toast.info(`Duty status set to: ${nextStatus}`)
-        return { ...t, availability: nextStatus }
-      }
-      return t
-    })
-    localStorage.setItem('mcs_global_team', JSON.stringify(updated))
-    setTeamMembers(updated)
+  const handleToggleMyAvailability = async () => {
+    // Find creator ID from active crew name
+    const member = teamMembers.find(t => t.name === activeCrewName)
+    if (!member || !member.id) return
+    const nextAvail: Record<string, 'AVAILABLE' | 'ON SHOOT' | 'LEAVE'> = {
+      'AVAILABLE': 'ON SHOOT',
+      'ON SHOOT': 'LEAVE',
+      'LEAVE': 'AVAILABLE'
+    }
+    const next = nextAvail[member.availability] || 'AVAILABLE'
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ availability: next })
+        .eq('user_id', member.id)
+      if (error) throw error
+      toast.success(`Availability status updated to ${next}.`)
+      loadDatabase()
+    } catch (err: any) {
+      toast.error('Failed to update availability status.')
+    }
   }
 
   // Booking operations
-  const handleUpdateBookingStatus = (id: string, status: string) => {
-    const updated = bookings.map(b => b.id === id ? { ...b, status } : b)
-    localStorage.setItem('mcs_global_bookings', JSON.stringify(updated))
-    setBookings(updated)
-    toast.success(`Booking ${id} status updated to ${status}.`)
-    if (selectedBooking && selectedBooking.id === id) {
-      setSelectedBooking({ ...selectedBooking, status })
+  const handleUpdateBookingStatus = async (id: string, status: string) => {
+    try {
+      const { error } = await supabase
+        .from('bookings')
+        .update({ status })
+        .eq('id', id)
+      if (error) throw error
+      toast.success(`Booking ${id} status updated to ${status}.`)
+      if (selectedBooking && selectedBooking.id === id) {
+        setSelectedBooking({ ...selectedBooking, status })
+      }
+      loadDatabase()
+    } catch (err: any) {
+      toast.error('Failed to update booking status.')
     }
   }
 
-  const handleUpdatePaymentStatus = (id: string, paymentStatus: string) => {
-    const updated = bookings.map(b => b.id === id ? { ...b, paymentStatus } : b)
-    localStorage.setItem('mcs_global_bookings', JSON.stringify(updated))
-    setBookings(updated)
-    toast.success(`Booking ${id} payment set to ${paymentStatus}.`)
-    if (selectedBooking && selectedBooking.id === id) {
-      setSelectedBooking({ ...selectedBooking, paymentStatus })
+  const handleUpdatePaymentStatus = async (id: string, paymentStatus: string) => {
+    try {
+      const { error } = await supabase
+        .from('bookings')
+        .update({ payment_status: paymentStatus })
+        .eq('id', id)
+      if (error) throw error
+      toast.success(`Booking ${id} payment set to ${paymentStatus}.`)
+      if (selectedBooking && selectedBooking.id === id) {
+        setSelectedBooking({ ...selectedBooking, paymentStatus })
+      }
+      loadDatabase()
+    } catch (err: any) {
+      toast.error('Failed to update payment status.')
     }
   }
 
-  const handleAssignCrew = (id: string, crewName: string) => {
-    const updated = bookings.map(b => b.id === id ? { ...b, assignedTo: crewName } : b)
-    localStorage.setItem('mcs_global_bookings', JSON.stringify(updated))
-    setBookings(updated)
-    toast.success(`Assigned ${crewName === 'UNASSIGNED' ? 'none' : crewName} to booking ${id}.`)
-    if (selectedBooking && selectedBooking.id === id) {
-      setSelectedBooking({ ...selectedBooking, assignedTo: crewName })
+  const handleAssignCrew = async (id: string, crewName: string) => {
+    try {
+      let assigned_creator_id: string | null = null
+      if (crewName !== 'UNASSIGNED') {
+        const { data: creator } = await supabase
+          .from('users')
+          .select('id')
+          .eq('name', crewName)
+          .eq('role', 'CREATOR')
+          .maybeSingle()
+        assigned_creator_id = creator?.id || null
+      }
+
+      const { error } = await supabase
+        .from('bookings')
+        .update({ 
+          assigned_creator_id,
+          status: crewName === 'UNASSIGNED' ? 'Pending' : 'Confirmed'
+        })
+        .eq('id', id)
+      
+      if (error) throw error
+      toast.success(`Assigned ${crewName === 'UNASSIGNED' ? 'none' : crewName} to booking ${id}.`)
+      loadDatabase()
+    } catch (err: any) {
+      toast.error('Failed to assign creator to booking.')
     }
   }
 
@@ -508,118 +523,183 @@ export default function App() {
       b.id !== currentBookingId && 
       b.assignedTo.toLowerCase() === crewName.toLowerCase() && 
       b.date === date && 
-      b.status === 'CONFIRMED'
+      b.status === 'Confirmed'
     )
     return isBusy ? 'BUSY ON THIS DAY' : 'AVAILABLE'
   }
 
   // Candidates / Application management
-  const handleUpdateAppStatus = (id: string, status: string) => {
-    const updated = applications.map(a => a.id === id ? { ...a, status } : a)
-    localStorage.setItem('mcs_global_applications', JSON.stringify(updated))
-    setApplications(updated)
-    toast.success(`Application status updated to ${status}.`)
+  const handleUpdateAppStatus = async (id: string, status: string) => {
+    try {
+      const { error } = await supabase
+        .from('applications')
+        .update({ status })
+        .eq('id', id)
+      if (error) throw error
+      toast.success(`Application status updated to ${status}.`)
+      loadDatabase()
+    } catch (err: any) {
+      toast.error('Failed to update application status.')
+    }
   }
 
-  const handleDeleteApp = (id: string) => {
-    if (!window.confirm('Delete this job application candidate?')) return
-    const updated = applications.filter(a => a.id !== id)
-    localStorage.setItem('mcs_global_applications', JSON.stringify(updated))
-    setApplications(updated)
-    toast.success('Application removed.')
+  const handleTriggerHireModal = (appId: string) => {
+    const app = applications.find(a => a.id === appId)
+    if (!app) return
+    setHireAppId(appId)
+    setHireName(app.name)
+    setHireEmail(app.email)
+    setHireSpecialty(app.jobTitle)
+    setHirePassword('crew2026') // default passcode
+    setHireHourlyRate('2000')
+    setShowHireModal(true)
   }
 
-  // Website Config Toggles
-  const handleToggleHiring = (active: boolean) => {
-    localStorage.setItem('mcs_global_career_hiring', String(active))
-    setCareerHiring(active)
-    toast.success(`Career open positions status set to: ${active ? 'ACTIVE' : 'SUSPENDED (Displaying "No Current Hirings")'}`)
-    window.dispatchEvent(new Event('storage'))
-  }
-
-  const handleSavePrices = () => {
-    localStorage.setItem('mcs_global_service_prices', JSON.stringify(editingPrices))
-    setServicePrices(editingPrices)
-    toast.success('Services base pricing updated and published.')
-    window.dispatchEvent(new Event('storage'))
-  }
-
-  const handleSaveReel = (e: React.FormEvent) => {
+  const handleConfirmHire = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!reelFormTitle.trim() || !reelFormVideoUrl.trim()) {
-      toast.error('Please enter a Title and a Video URL.')
+    if (!hirePassword || hirePassword.length < 6) {
+      toast.error('Password must be at least 6 characters.')
       return
     }
 
-    let updated: ReelItem[] = []
-    if (reelEditId !== null) {
-      // Editing
-      updated = reels.map(r => r.id === reelEditId ? {
-        ...r,
-        title: reelFormTitle,
-        videoUrl: reelFormVideoUrl,
-        views: reelFormViews || r.views || '120K',
-        likes: reelFormLikes || r.likes || '10K'
-      } : r)
-      toast.success('Homepage video reel updated.')
-    } else {
-      // Adding new
-      const nextId = reels.length > 0 ? Math.max(...reels.map(r => r.id)) + 1 : 0
-      const newReel: ReelItem = {
-        id: nextId,
-        title: reelFormTitle,
-        videoUrl: reelFormVideoUrl,
-        views: reelFormViews || '100K',
-        likes: reelFormLikes || '8K'
-      }
-      updated = [...reels, newReel]
-      toast.success('New video reel published.')
+    try {
+      const creatorId = uuidv4()
+      // 1. Insert user
+      const { error: userError } = await supabase
+        .from('users')
+        .insert({
+          id: creatorId,
+          email: hireEmail.toLowerCase(),
+          name: hireName,
+          role: 'CREATOR',
+          password: hirePassword
+        })
+      if (userError) throw userError
+
+      // 2. Insert profile
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          user_id: creatorId,
+          specialty: hireSpecialty,
+          availability: 'AVAILABLE',
+          hourly_rate: Number(hireHourlyRate)
+        })
+      if (profileError) throw profileError
+
+      // 3. Update application status
+      const { error: appError } = await supabase
+        .from('applications')
+        .update({ status: 'APPROVED' })
+        .eq('id', hireAppId)
+      if (appError) throw appError
+
+      toast.success(`Hired ${hireName} successfully! Creator credentials setup.`)
+      setShowHireModal(false)
+      loadDatabase()
+    } catch (err: any) {
+      toast.error(`Hiring confirmation failed: ${err.message}`)
+    }
+  }
+
+  const handleDeleteApp = async (id: string) => {
+    if (!window.confirm('Delete this application permanently?')) return
+    try {
+      const { error } = await supabase
+        .from('applications')
+        .delete()
+        .eq('id', id)
+      if (error) throw error
+      toast.success('Application deleted.')
+      loadDatabase()
+    } catch (err: any) {
+      toast.error('Failed to delete application.')
+    }
+  }
+
+  const handleToggleHiring = async () => {
+    const nextVal = !careerHiring
+    try {
+      const { error } = await supabase
+        .from('website_settings')
+        .upsert({ key: 'career_hiring', value: nextVal })
+      if (error) throw error
+      setCareerHiring(nextVal)
+      toast.success(`Hiring portal set to ${nextVal ? 'ACTIVE' : 'INACTIVE'}.`)
+    } catch (err: any) {
+      toast.error('Failed to toggle hiring status.')
+    }
+  }
+
+  const handleSavePrices = async () => {
+    try {
+      const updatePromises = Object.entries(editingPrices).map(([name, price]) => {
+        return supabase
+          .from('packages')
+          .update({ price: Number(price) })
+          .eq('name', name)
+      })
+      await Promise.all(updatePromises)
+      toast.success('Service package pricing synchronized.')
+      loadDatabase()
+    } catch (err: any) {
+      toast.error('Failed to save service prices.')
+    }
+  }
+
+  const handleSaveReel = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newReelTitle || !newReelUrl) {
+      toast.error('Title and Video URL are required.')
+      return
     }
 
-    localStorage.setItem('mcs_global_reels', JSON.stringify(updated))
-    setReels(updated)
-    
-    // Reset Form
-    setReelFormTitle('')
-    setReelFormVideoUrl('')
-    setReelFormViews('')
-    setReelFormLikes('')
-    setReelEditId(null)
-    setShowReelModal(false)
+    try {
+      if (reelEditId !== null) {
+        // Edit
+        const { error } = await supabase
+          .from('reels')
+          .update({ title: newReelTitle, video_url: newReelUrl })
+          .eq('id', reelEditId)
+        if (error) throw error
+        toast.success('Reel updated successfully.')
+      } else {
+        // New
+        const { error } = await supabase
+          .from('reels')
+          .insert({ title: newReelTitle, video_url: newReelUrl })
+        if (error) throw error
+        toast.success('Reel added to website controls.')
+      }
 
-    window.dispatchEvent(new Event('storage'))
+      setNewReelTitle('')
+      setNewReelUrl('')
+      setReelEditId(null)
+      setShowReelModal(false)
+      loadDatabase()
+    } catch (err: any) {
+      toast.error('Failed to save reel.')
+    }
   }
 
-  const handleDeleteReel = (id: number) => {
-    if (!window.confirm('Delete this video reel from homepage preview?')) return
-    const updated = reels.filter(r => r.id !== id)
-    localStorage.setItem('mcs_global_reels', JSON.stringify(updated))
-    setReels(updated)
-    toast.success('Reel deleted from database.')
-    window.dispatchEvent(new Event('storage'))
+  const handleDeleteReel = async (id: number) => {
+    if (!window.confirm('Delete this showcase reel?')) return
+    try {
+      const { error } = await supabase
+        .from('reels')
+        .delete()
+        .eq('id', id)
+      if (error) throw error
+      toast.success('Reel deleted.')
+      loadDatabase()
+    } catch (err: any) {
+      toast.error('Failed to delete reel.')
+    }
   }
 
-  const handleOpenEditReel = (reel: ReelItem) => {
-    setReelEditId(reel.id)
-    setReelFormTitle(reel.title)
-    setReelFormVideoUrl(reel.videoUrl)
-    setReelFormViews(reel.views)
-    setReelFormLikes(reel.likes)
-    setShowReelModal(true)
-  }
-
-  const handleOpenAddReel = () => {
-    setReelEditId(null)
-    setReelFormTitle('')
-    setReelFormVideoUrl('')
-    setReelFormViews('')
-    setReelFormLikes('')
-    setShowReelModal(true)
-  }
-
-  // DB Sync Tools
+  // System Backup / Export JSON
   const handleExportData = () => {
-    const data = {
+    const dataObj = {
       bookings,
       teamMembers,
       applications,
@@ -627,1831 +707,1394 @@ export default function App() {
       servicePrices,
       reels
     }
-    const jsonStr = JSON.stringify(data, null, 2)
-    navigator.clipboard.writeText(jsonStr)
-    toast.success('Database payload copied to clipboard!')
+    navigator.clipboard.writeText(JSON.stringify(dataObj, null, 2))
+    toast.success('Database export copied to clipboard.')
   }
 
-  const handleImportData = () => {
-    if (!importText) {
-      toast.error('Paste JSON payload first.')
-      return
-    }
+  const handleImportData = async () => {
     try {
       const parsed = JSON.parse(importText)
-      if (parsed.bookings) {
-        localStorage.setItem('mcs_global_bookings', JSON.stringify(parsed.bookings))
-        setBookings(parsed.bookings)
-      }
-      if (parsed.teamMembers) {
-        localStorage.setItem('mcs_global_team', JSON.stringify(parsed.teamMembers))
-        setTeamMembers(parsed.teamMembers)
-      }
-      if (parsed.applications) {
-        localStorage.setItem('mcs_global_applications', JSON.stringify(parsed.applications))
-        setApplications(parsed.applications)
-      }
-      if (parsed.careerHiring !== undefined) {
-        localStorage.setItem('mcs_global_career_hiring', String(parsed.careerHiring))
-        setCareerHiring(parsed.careerHiring)
-      }
+      // Import packages prices
       if (parsed.servicePrices) {
-        localStorage.setItem('mcs_global_service_prices', JSON.stringify(parsed.servicePrices))
-        setServicePrices(parsed.servicePrices)
-        setEditingPrices(parsed.servicePrices)
+        const updatePromises = Object.entries(parsed.servicePrices).map(([name, price]) => {
+          return supabase
+            .from('packages')
+            .update({ price: Number(price) })
+            .eq('name', name)
+        })
+        await Promise.all(updatePromises)
       }
-      if (parsed.reels) {
-        localStorage.setItem('mcs_global_reels', JSON.stringify(parsed.reels))
-        setReels(parsed.reels)
-      }
-      toast.success('Database synchronized successfully!')
-      setImportText('')
+      
+      toast.success('Database synchronized successfully from sync text.')
       setShowSyncModal(false)
-      window.dispatchEvent(new Event('storage'))
+      setImportText('')
+      loadDatabase()
     } catch (e) {
-      toast.error('Invalid database JSON structure.')
+      toast.error('Sync failed: Invalid JSON structure.')
     }
   }
 
-  const handleResetDefaults = () => {
-    if (!window.confirm('Reset local storage to original seed data? All custom bookings and crew will be lost.')) return
-    localStorage.removeItem('mcs_global_bookings')
-    localStorage.removeItem('mcs_global_team')
-    localStorage.removeItem('mcs_global_applications')
-    localStorage.removeItem('mcs_global_career_hiring')
-    localStorage.removeItem('mcs_global_service_prices')
-    localStorage.removeItem('mcs_global_reels')
-    window.location.reload()
+  const handleResetDefaults = async () => {
+    if (!window.confirm('Factory reset central database? This deletes all current bookings.')) return
+    try {
+      // Clear bookings
+      const { error: clearBookings } = await supabase.from('bookings').delete().neq('id', 'MOCK')
+      if (clearBookings) throw clearBookings
+      toast.success('Operational database re-initialized successfully.')
+      loadDatabase()
+    } catch (err: any) {
+      toast.error('Failed to reset defaults.')
+    }
   }
 
-  // Metric Calculation & Chart Formatter
-  const grossPaid = bookings.filter(b => b.paymentStatus === 'PAID').reduce((sum, b) => sum + b.price, 0)
-  const pendingReceivables = bookings.filter(b => b.paymentStatus === 'PENDING').reduce((sum, b) => sum + b.price, 0)
+  // Computed metrics
+  const grossPaid = bookings.filter(b => b.paymentStatus === 'PAID' || b.paymentStatus === 'Success').reduce((sum, b) => sum + b.price, 0)
+  const pendingReceivables = bookings.filter(b => b.paymentStatus === 'PENDING' || b.paymentStatus === 'Pending').reduce((sum, b) => sum + b.price, 0)
   const totalValuation = grossPaid + pendingReceivables
 
-  // Group monthly finance
-  const getMonths = () => {
-    const monthlyData: Record<string, { name: string; paid: number; pending: number; count: number }> = {}
+  const chartData = (() => {
+    const monthly: Record<string, { paid: number; pending: number; count: number }> = {}
     bookings.forEach(b => {
-      // parse date (yyyy-mm-dd)
-      const dateParts = b.date.split('-')
-      if (dateParts.length >= 2) {
-        const year = dateParts[0]
-        const monthNum = parseInt(dateParts[1])
-        const monthsNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-        const key = `${year}-${monthsNames[monthNum - 1]}`
-        if (!monthlyData[key]) {
-          monthlyData[key] = { name: `${monthsNames[monthNum - 1]} ${year}`, paid: 0, pending: 0, count: 0 }
-        }
-        if (b.paymentStatus === 'PAID') {
-          monthlyData[key].paid += b.price
-        } else {
-          monthlyData[key].pending += b.price
-        }
-        monthlyData[key].count++
+      const date = new Date(b.date)
+      if (isNaN(date.getTime())) return
+      const monthKey = date.toLocaleString('default', { month: 'short', year: '2-digit' })
+      if (!monthly[monthKey]) {
+        monthly[monthKey] = { paid: 0, pending: 0, count: 0 }
       }
+      if (b.paymentStatus === 'PAID' || b.paymentStatus === 'Success') {
+        monthly[monthKey].paid += b.price
+      } else {
+        monthly[monthKey].pending += b.price
+      }
+      monthly[monthKey].count++
     })
-    return Object.values(monthlyData)
-  }
+    return Object.entries(monthly).map(([month, data]) => ({
+      month,
+      Paid: data.paid,
+      Pending: data.pending,
+      bookings: data.count
+    })).reverse()
+  })()
 
-  const chartData = getMonths()
-
-  // Filters calculation
+  // Filters mapping
   const filteredBookings = bookings.filter(b => {
-    const matchesSearch = b.name.toLowerCase().includes(bookingSearch.toLowerCase()) || 
-                          b.id.toLowerCase().includes(bookingSearch.toLowerCase()) ||
-                          b.service.toLowerCase().includes(bookingSearch.toLowerCase())
-    const matchesStatus = bookingFilterStatus === 'ALL' || b.status === bookingFilterStatus
-    const matchesService = bookingFilterService === 'ALL' || b.service === bookingFilterService
-    return matchesSearch && matchesStatus && matchesService
+    const matchSearch = b.name.toLowerCase().includes(bookingSearch.toLowerCase()) || b.id.toLowerCase().includes(bookingSearch.toLowerCase())
+    const matchStatus = bookingFilterStatus === 'ALL' || b.status === bookingFilterStatus
+    const matchService = bookingFilterService === 'ALL' || b.service === bookingFilterService
+    return matchSearch && matchStatus && matchService
   })
 
-  // Partner calculations
+  // Partner specific dispatches
   const myBookings = bookings.filter(b => b.assignedTo.toLowerCase() === activeCrewName.toLowerCase())
   const todayStr = new Date().toISOString().split('T')[0]
-  const todayShoots = myBookings.filter(b => b.date === todayStr && b.status === 'CONFIRMED')
-  const upcomingShoots = myBookings.filter(b => b.date > todayStr && b.status === 'CONFIRMED')
-  const pastShoots = myBookings.filter(b => b.status === 'COMPLETED' || b.date < todayStr)
-  
-  const myCompletedCount = myBookings.filter(b => b.status === 'COMPLETED').length
-  const myUpcomingCount = upcomingShoots.length
-  
-  const myProfile = teamMembers.find(t => t.name.toLowerCase() === activeCrewName.toLowerCase())
+  const myEarnings = myBookings.filter(b => b.paymentStatus === 'PAID' || b.paymentStatus === 'Success').reduce((sum, b) => sum + (b.price * 0.4), 0) // 40% dispatch share
 
-  const myEarnedPaid = myBookings.filter(b => b.status === 'COMPLETED' && b.paymentStatus === 'PAID').reduce((sum, b) => sum + b.price, 0)
-  const myEarnedPending = myBookings.filter(b => b.status === 'COMPLETED' && b.paymentStatus === 'PENDING').reduce((sum, b) => sum + b.price, 0)
+  return (
+    <div className="min-h-screen flex flex-col font-sans select-none antialiased">
+      <Toaster theme="dark" position="bottom-center" />
 
-  // RENDER GATE 1: SIGN IN SCREEN
-  if (authRole === 'NONE') {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center py-16 px-6 font-sans">
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden transition-all duration-300">
-          
-          {/* Header */}
-          <div className="bg-slate-900 text-white py-8 px-8 text-center relative">
-            <div className="absolute inset-0 bg-gradient-to-tr from-indigo-900/40 via-transparent to-transparent pointer-events-none" />
-            <h1 className="font-heading text-lg font-black tracking-[0.2em] text-indigo-400 uppercase">
-              MR. CINEMATICSHOOT
-            </h1>
-            <p className="text-[10px] tracking-widest text-slate-400 font-bold uppercase mt-1">
-              OPERATIONS & PARTNERS PORTAL
-            </p>
-          </div>
+      {/* LOGIN VIEW */}
+      {authRole === 'NONE' && (
+        <div className="flex-1 flex flex-col items-center justify-center bg-slate-950 px-4 py-12 relative overflow-hidden select-none">
+          {/* Animated Background Gradients */}
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-950/20 rounded-full blur-[128px] animate-pulse duration-10000" />
+          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-violet-950/20 rounded-full blur-[128px] animate-pulse duration-7000" />
 
-          {/* Selector Tabs */}
-          <div className="flex border-b border-slate-100 bg-slate-50/50">
-            <button
-              onClick={() => setLoginTab('ADMIN')}
-              className={`flex-1 py-4 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all ${
-                loginTab === 'ADMIN' 
-                  ? 'border-indigo-600 text-indigo-600 bg-white' 
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
-              }`}
-            >
-              Administrator Access
-            </button>
-            <button
-              onClick={() => setLoginTab('CREW')}
-              className={`flex-1 py-4 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all ${
-                loginTab === 'CREW' 
-                  ? 'border-indigo-600 text-indigo-600 bg-white' 
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
-              }`}
-            >
-              Partner / Crew Gateway
-            </button>
-          </div>
+          <div className="w-full max-w-[400px] space-y-8 relative z-10 animate-reveal-up">
+            <div className="text-center space-y-2">
+              <h1 className="font-heading text-xl font-black tracking-[0.25em] text-white uppercase flex items-center justify-center gap-2">
+                <span>MR. CINEMATICSHOOT</span>
+              </h1>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em]">
+                Operations Hub & Partner Portal
+              </p>
+            </div>
 
-          <div className="p-8">
-            {loginTab === 'ADMIN' ? (
-              // ADMIN FORM
-              <form onSubmit={handleAdminLogin} className="space-y-5 animate-fade-in">
-                <div className="space-y-1.5">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    Email Address
-                  </label>
-                  <input
-                    type="email"
-                    value={adminEmail}
-                    onChange={(e) => setAdminEmail(e.target.value)}
-                    placeholder="admin@mrcinematic.com"
-                    className="w-full text-sm border border-slate-200 rounded-lg px-4 py-3 bg-slate-50/30 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-all placeholder:text-slate-300"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    Security Passcode
-                  </label>
-                  <input
-                    type="password"
-                    value={adminPasscode}
-                    onChange={(e) => setAdminPasscode(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="w-full text-sm border border-slate-200 rounded-lg px-4 py-3 bg-slate-50/30 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-all placeholder:text-slate-300"
-                    required
-                  />
-                </div>
-
+            <div className="bg-slate-900/40 backdrop-blur-xl border border-slate-800/60 rounded-2xl p-6 shadow-2xl space-y-6">
+              <div className="flex border-b border-slate-800 p-0.5 bg-slate-950/40 rounded-lg">
                 <button
-                  type="submit"
-                  className="w-full py-3.5 bg-slate-900 text-white rounded-lg font-heading text-xs font-black tracking-widest uppercase hover:bg-indigo-600 hover:shadow-lg hover:shadow-indigo-600/10 transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer mt-2"
+                  onClick={() => setLoginTab('ADMIN')}
+                  className={`flex-1 py-2 rounded-md font-heading text-[10px] font-bold tracking-widest uppercase transition-all cursor-pointer ${
+                    loginTab === 'ADMIN' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
+                  }`}
                 >
-                  <Lock size={12} />
-                  Authorize Admin Session
+                  Administrator Access
                 </button>
-              </form>
-            ) : (
-              // PARTNER FORM
-              <form onSubmit={handleCrewLogin} className="space-y-5 animate-fade-in">
-                <div className="space-y-1.5">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    Select Member Name
-                  </label>
-                  <select
-                    value={crewSelect}
-                    onChange={(e) => setCrewSelect(e.target.value)}
-                    className="w-full text-sm border border-slate-200 rounded-lg px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-all cursor-pointer text-slate-700 font-medium"
-                    required
+                <button
+                  onClick={() => setLoginTab('CREW')}
+                  className={`flex-1 py-2 rounded-md font-heading text-[10px] font-bold tracking-widest uppercase transition-all cursor-pointer ${
+                    loginTab === 'CREW' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  Partner / Crew Gateway
+                </button>
+              </div>
+
+              {loginTab === 'ADMIN' ? (
+                // ADMIN FORM
+                <form onSubmit={handleAdminLogin} className="space-y-5">
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      Admin Email
+                    </label>
+                    <input
+                      type="email"
+                      value={adminEmail}
+                      onChange={(e) => setAdminEmail(e.target.value)}
+                      placeholder="admin@mrcinematic.com"
+                      className="w-full text-sm border border-slate-800 rounded-lg px-4 py-3 bg-slate-950/30 text-white focus:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-600"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      Secret Passcode
+                    </label>
+                    <input
+                      type="password"
+                      value={adminPasscode}
+                      onChange={(e) => setAdminPasscode(e.target.value)}
+                      placeholder="••••••••••••"
+                      className="w-full text-sm border border-slate-800 rounded-lg px-4 py-3 bg-slate-950/30 text-white focus:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-600"
+                      required
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-3.5 bg-indigo-600 text-white rounded-lg font-heading text-xs font-black tracking-widest uppercase hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-600/10 transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer mt-2 border-0"
                   >
-                    <option value="">-- Choose Identity --</option>
-                    {teamMembers.map(t => (
-                      <option key={t.name} value={t.name}>{t.name}</option>
-                    ))}
-                  </select>
-                </div>
+                    <Lock size={12} />
+                    Authorize Admin Session
+                  </button>
+                </form>
+              ) : (
+                // PARTNER FORM (Updated to email + password)
+                <form onSubmit={handleCrewLogin} className="space-y-5 animate-fade-in">
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      Partner Email
+                    </label>
+                    <input
+                      type="email"
+                      value={crewSelect}
+                      onChange={(e) => setCrewSelect(e.target.value)}
+                      placeholder="partner@mrcinematic.com"
+                      className="w-full text-sm border border-slate-800 rounded-lg px-4 py-3 bg-slate-950/30 text-white focus:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-600"
+                      required
+                    />
+                  </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    Partner Access Key
-                  </label>
-                  <input
-                    type="password"
-                    value={crewPasscode}
-                    onChange={(e) => setCrewPasscode(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="w-full text-sm border border-slate-200 rounded-lg px-4 py-3 bg-slate-50/30 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-all placeholder:text-slate-300"
-                    required
-                  />
-                </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      Partner Access Key
+                    </label>
+                    <input
+                      type="password"
+                      value={crewPasscode}
+                      onChange={(e) => setCrewPasscode(e.target.value)}
+                      placeholder="••••••••••••"
+                      className="w-full text-sm border border-slate-800 rounded-lg px-4 py-3 bg-slate-950/30 text-white focus:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-600"
+                      required
+                    />
+                  </div>
 
-                <button
-                  type="submit"
-                  className="w-full py-3.5 bg-slate-900 text-white rounded-lg font-heading text-xs font-black tracking-widest uppercase hover:bg-indigo-600 hover:shadow-lg hover:shadow-indigo-600/10 transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer mt-2"
-                >
-                  <Lock size={12} />
-                  Access Worker Console
-                </button>
-              </form>
-            )}
+                  <button
+                    type="submit"
+                    className="w-full py-3.5 bg-slate-800 text-white hover:bg-slate-700 rounded-lg font-heading text-xs font-black tracking-widest uppercase hover:shadow-lg transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer mt-2 border-0"
+                  >
+                    <Lock size={12} />
+                    Decrypt Partner Portal
+                  </button>
+                </form>
+              )}
+            </div>
 
-            <div className="mt-8 border-t border-slate-100 pt-5 text-center">
-              <span className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">
-                Authorization protocol v2.6.2026
-              </span>
+            <div className="text-center text-[9px] font-mono text-slate-600 uppercase tracking-wider">
+              Authorization Protocol v3.0.0 — Unified Supabase persistence
             </div>
           </div>
         </div>
-        <Toaster position="top-right" richColors />
-      </div>
-    )
-  }
+      )}
 
-  // RENDER GATE 2: PARTNER DASHBOARD (CREW)
-  if (authRole === 'CREW') {
-    return (
-      <div className="min-h-screen bg-slate-50 text-slate-700 flex flex-col font-sans">
-        
-        {/* Navigation Header */}
-        <header className="border-b border-slate-200 bg-white px-6 md:px-12 py-4 flex justify-between items-center sticky top-0 z-40 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
-              C
+      {/* PARTNER / CREW PORTAL VIEW */}
+      {authRole === 'CREW' && (
+        <div className="flex-1 flex flex-col bg-slate-950 text-slate-100">
+          <header className="border-b border-slate-900 bg-slate-900/20 backdrop-blur-xl px-6 py-4 flex items-center justify-between sticky top-0 z-40">
+            <div className="flex items-center gap-4">
+              <h2 className="font-heading text-sm font-black tracking-[0.2em] text-white uppercase">
+                PARTNER PORTAL
+              </h2>
+              <span className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[8px] font-bold rounded-full tracking-wider uppercase">
+                Verified Crew
+              </span>
             </div>
-            <div className="text-sm font-black tracking-widest text-slate-900 font-heading">
-              MR. CINEMATICSHOOT <span className="text-[10px] text-indigo-600 bg-indigo-50 px-2 py-0.5 ml-2 font-bold tracking-widest rounded border border-indigo-100">PARTNER</span>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">
+                {activeCrewName}
+              </span>
+              <button
+                onClick={handleLogout}
+                className="p-2 text-slate-400 hover:text-red-400 transition-colors bg-transparent border-0 cursor-pointer"
+                title="Lock Portal"
+              >
+                <LogOut size={16} />
+              </button>
             </div>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="px-3.5 py-2 border border-slate-200 text-slate-600 hover:border-red-500 hover:text-red-600 text-xs font-black tracking-widest uppercase flex items-center gap-1.5 transition-all cursor-pointer rounded-lg bg-white shadow-sm"
-          >
-            <LogOut size={12} />
-            Lock Portal
-          </button>
-        </header>
+          </header>
 
-        {/* Dashboard Area */}
-        <main className="w-full max-w-7xl mx-auto px-6 md:px-12 py-10 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8">
-          
-          {/* Left panel */}
-          <div className="lg:col-span-4 space-y-6">
-            
-            {/* Identity Card */}
-            {myProfile && (
-              <div className="clean-card p-6 rounded-2xl space-y-5">
-                <div>
-                  <span className="font-heading text-[10px] font-bold tracking-widest text-indigo-600 uppercase block mb-1">
-                    Authenticated Crew Member
-                  </span>
-                  <h2 className="font-heading text-2xl font-black text-slate-900 tracking-wide uppercase">
-                    {myProfile.name}
-                  </h2>
-                  <span className="text-xs text-slate-500 font-medium mt-0.5 block">
-                    {myProfile.role}
-                  </span>
-                  <div className="bg-slate-50 border border-slate-100 p-3 rounded-lg text-xs text-slate-600 mt-4">
-                    <span className="font-bold block text-slate-700 text-[10px] uppercase tracking-wider mb-0.5">Specialty focus</span>
-                    {myProfile.specialty}
+          <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* LEFT COLUMN: IDENTITY CARD */}
+            <div className="lg:col-span-4 space-y-6">
+              <div className="bg-slate-900/30 border border-slate-900 rounded-2xl p-6 space-y-6">
+                <div className="flex items-center gap-4 pb-4 border-b border-slate-900">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center font-heading text-lg font-black text-white">
+                    {activeCrewName.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div>
+                    <h3 className="font-heading text-sm font-bold text-white uppercase">{activeCrewName}</h3>
+                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                      {teamMembers.find(t => t.name === activeCrewName)?.role || 'Cinematography Team'}
+                    </p>
                   </div>
                 </div>
 
-                {/* Duty Toggle */}
-                <div className="border-t border-slate-100 pt-4 space-y-2">
-                  <span className="font-heading text-[10px] font-bold tracking-widest text-slate-400 block mb-1">
-                    Duty Availability Status
-                  </span>
-                  
-                  <div className="flex items-center justify-between bg-slate-50 border border-slate-100 p-3 rounded-xl">
-                    <span className={`inline-block px-3 py-1 border text-[10px] font-bold tracking-widest rounded-full ${
-                      myProfile.availability === 'AVAILABLE' 
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700' 
-                        : myProfile.availability === 'ON SHOOT'
-                          ? 'border-indigo-200 bg-indigo-50 text-indigo-700 animate-pulse'
-                          : 'border-slate-200 bg-slate-100 text-slate-500'
-                    }`}>
-                      {myProfile.availability}
-                    </span>
-                    
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-bold text-slate-400 uppercase tracking-widest">Duty Status</span>
                     <button
                       onClick={handleToggleMyAvailability}
-                      className="px-3 py-1.5 bg-indigo-600 text-white hover:bg-indigo-700 text-[10px] font-bold tracking-widest cursor-pointer transition-all rounded-lg shadow-sm uppercase font-heading"
+                      className={`px-3 py-1 rounded-full text-[9px] font-bold tracking-widest uppercase cursor-pointer border-0 ${
+                        teamMembers.find(t => t.name === activeCrewName)?.availability === 'AVAILABLE'
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          : teamMembers.find(t => t.name === activeCrewName)?.availability === 'ON SHOOT'
+                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                            : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                      }`}
                     >
-                      Cycle Status
+                      {teamMembers.find(t => t.name === activeCrewName)?.availability || 'AVAILABLE'}
                     </button>
                   </div>
-                </div>
-              </div>
-            )}
 
-            {/* Earnings / Telemetry Card */}
-            <div className="clean-card p-6 rounded-2xl space-y-5">
-              <h3 className="font-heading text-xs font-black tracking-widest text-slate-800 uppercase border-b border-slate-100 pb-3">
-                Financial Telemetry
-              </h3>
-              
-              <div className="grid grid-cols-1 gap-3">
-                <div className="bg-emerald-50/50 p-4 border border-emerald-100 rounded-xl flex justify-between items-center">
-                  <div>
-                    <span className="text-[9px] text-emerald-800 font-bold tracking-wider uppercase block">Paid Earnings</span>
-                    <span className="text-xs text-slate-400">Completed & Disbursed</span>
+                  <div className="border-t border-slate-900 pt-4 space-y-3">
+                    <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Financial Telemetry</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-slate-950/40 p-3 border border-slate-900 rounded-xl text-center">
+                        <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest mb-1">Paid Earnings</span>
+                        <span className="font-heading text-sm font-black text-white">₹{myEarnings.toLocaleString()}</span>
+                      </div>
+                      <div className="bg-slate-950/40 p-3 border border-slate-900 rounded-xl text-center">
+                        <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest mb-1">Pending Invoices</span>
+                        <span className="font-heading text-sm font-black text-slate-400">₹{(myBookings.filter(b => b.paymentStatus !== 'PAID' && b.paymentStatus !== 'Success').reduce((sum, b) => sum + b.price, 0) * 0.4).toLocaleString()}</span>
+                      </div>
+                    </div>
                   </div>
-                  <span className="text-xl font-black text-emerald-700 font-heading">₹{myEarnedPaid.toLocaleString()}</span>
-                </div>
-
-                <div className="bg-slate-50 p-4 border border-slate-100 rounded-xl flex justify-between items-center">
-                  <div>
-                    <span className="text-[9px] text-slate-500 font-bold tracking-wider uppercase block">Pending Invoices</span>
-                    <span className="text-xs text-slate-400">Awaiting Client Clearance</span>
-                  </div>
-                  <span className="text-xl font-black text-slate-800 font-heading">₹{myEarnedPending.toLocaleString()}</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <div className="bg-slate-50/80 p-3 border border-slate-100 rounded-xl text-center">
-                  <span className="text-2xl font-black text-slate-800 font-heading">{myCompletedCount}</span>
-                  <span className="text-[9px] font-bold text-slate-400 tracking-wider block mt-0.5">COMPLETED</span>
-                </div>
-                
-                <div className="bg-slate-50/80 p-3 border border-slate-100 rounded-xl text-center">
-                  <span className="text-2xl font-black text-slate-800 font-heading">{myUpcomingCount}</span>
-                  <span className="text-[9px] font-bold text-slate-400 tracking-wider block mt-0.5">UPCOMING</span>
                 </div>
               </div>
             </div>
 
-          </div>
-
-          {/* Right panel - Shoots list */}
-          <div className="lg:col-span-8 space-y-6">
-            
-            {/* A. TODAY'S ASSIGNED WORK */}
-            <div className="clean-card p-6 rounded-2xl space-y-4">
-              <span className="font-heading text-xs font-black tracking-widest text-indigo-600 block border-b border-slate-100 pb-3 flex items-center gap-2 uppercase">
-                <Clock size={14} className="text-indigo-500" /> Today's Production Dispatches
-              </span>
-
-              {todayShoots.length > 0 ? (
-                <div className="space-y-4">
-                  {todayShoots.map((b) => (
-                    <div key={b.id} className="p-5 border border-indigo-100 bg-indigo-50/20 rounded-xl relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition-all">
-                      <div className="absolute top-0 right-0 px-3 py-1 bg-indigo-600 text-white font-heading text-[8px] font-bold tracking-widest rounded-bl uppercase">
-                        ACTIVE TODAY
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-[9px] text-slate-400 font-semibold">{b.id}</span>
-                          <span className="font-heading text-[9px] font-bold tracking-widest text-indigo-600 uppercase bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded">
-                            {b.service}
-                          </span>
-                        </div>
-                        <h4 className="font-heading text-lg font-black text-slate-900 tracking-wide uppercase">{b.name}</h4>
-                        <p className="text-xs text-slate-600 leading-relaxed max-w-xl italic">
-                          "{b.message}"
-                        </p>
-                      </div>
-
-                      <div className="flex flex-col gap-2 items-start md:items-end w-full md:w-auto border-t md:border-t-0 border-slate-100 pt-3 md:pt-0">
-                        <button
-                          onClick={() => setSelectedBooking(b)}
-                          className="px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 font-heading text-[10px] font-black tracking-widest uppercase transition-all w-full md:w-auto cursor-pointer rounded-lg shadow-sm"
-                        >
-                          View Brief
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="p-8 text-center text-xs text-slate-400 tracking-widest font-heading border border-dashed border-slate-200 rounded-xl uppercase">
-                  No dispatches scheduled for today.
-                </div>
-              )}
-            </div>
-
-            {/* B. UPCOMING PRODUCTION DISPATCHES */}
-            <div className="clean-card p-6 rounded-2xl space-y-4">
-              <span className="font-heading text-xs font-black tracking-widest text-slate-800 block border-b border-slate-100 pb-3 uppercase">
-                Upcoming Shoot Schedule
-              </span>
-
-              {upcomingShoots.length > 0 ? (
-                <div className="divide-y divide-slate-100">
-                  {upcomingShoots.map((b) => (
-                    <div key={b.id} className="py-4 first:pt-0 last:pb-0 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-[9px] text-slate-400 font-semibold">{b.id}</span>
-                          <span className="font-heading text-[9px] font-bold tracking-widest text-indigo-600 uppercase">
-                            {b.service}
-                          </span>
-                        </div>
-                        <h4 className="font-heading text-sm font-black text-slate-800 tracking-wide uppercase">{b.name}</h4>
-                        <span className="text-[10px] font-bold text-slate-500 tracking-wider block bg-slate-100 px-2 py-0.5 rounded w-max">
-                          Target Date: {b.date}
-                        </span>
-                      </div>
-
-                      <button
-                        onClick={() => setSelectedBooking(b)}
-                        className="px-3 py-1.5 border border-slate-200 hover:border-indigo-600 hover:text-indigo-600 text-[10px] font-heading font-black tracking-widest uppercase transition-colors w-full md:w-auto cursor-pointer rounded-lg bg-white"
-                      >
-                        View Brief
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="p-8 text-center text-xs text-slate-400 tracking-widest font-heading border border-dashed border-slate-200 rounded-xl uppercase">
-                  No upcoming shoots assigned.
-                </div>
-              )}
-            </div>
-
-            {/* C. COMPLETED HISTORY */}
-            <div className="clean-card p-6 rounded-2xl space-y-4">
-              <span className="font-heading text-xs font-black tracking-widest text-slate-800 block border-b border-slate-100 pb-3 uppercase">
-                Completed Logs
-              </span>
-
-              {pastShoots.length > 0 ? (
-                <div className="divide-y divide-slate-100">
-                  {pastShoots.map((b) => (
-                    <div key={b.id} className="py-4 first:pt-0 last:pb-0 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 opacity-80">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-[9px] text-slate-400">{b.id}</span>
-                          <span className="text-[9px] font-bold tracking-wider text-slate-500 uppercase">
-                            {b.service}
-                          </span>
-                        </div>
-                        <h4 className="font-heading text-sm font-bold text-slate-700 tracking-wide uppercase">{b.name}</h4>
-                        <span className="text-[9px] text-slate-400 block">
-                          Date: {b.date} • Invoice: {b.paymentStatus}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <span className="px-2.5 py-0.5 border border-emerald-200 bg-emerald-50 text-emerald-700 text-[8px] font-black tracking-widest uppercase rounded">
-                          {b.status}
-                        </span>
-                        <button
-                          onClick={() => setSelectedBooking(b)}
-                          className="px-2.5 py-1.5 border border-slate-200 hover:border-indigo-600 hover:text-indigo-600 text-[8px] font-heading font-black tracking-widest uppercase transition-colors cursor-pointer rounded bg-white"
-                        >
-                          View
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="p-8 text-center text-xs text-slate-400 tracking-widest font-heading border border-dashed border-slate-200 rounded-xl uppercase">
-                  No completed operations recorded.
-                </div>
-              )}
-            </div>
-
-          </div>
-
-        </main>
-
-        {/* Modal display for booking briefs */}
-        {selectedBooking && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
-            <div className="absolute inset-0 cursor-default" onClick={() => setSelectedBooking(null)} />
-            
-            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-xl p-8 border border-slate-100 z-10 animate-fade-in text-left">
-              <button
-                onClick={() => setSelectedBooking(null)}
-                className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer bg-slate-50 hover:bg-slate-100 p-1.5 rounded-full"
-                aria-label="Close details"
-              >
-                <X size={16} />
-              </button>
-
-              <div className="mb-6 border-b border-slate-100 pb-4">
-                <span className="font-heading text-[10px] font-black tracking-widest text-indigo-600 uppercase block mb-1">
-                  Production Dispatch Brief
-                </span>
-                <h3 className="font-heading text-lg font-black text-slate-900 tracking-wide uppercase">
-                  {selectedBooking.id} / {selectedBooking.name}
+            {/* RIGHT COLUMN: DISPATCH SCHEDULE */}
+            <div className="lg:col-span-8 space-y-8">
+              <div className="bg-slate-900/30 border border-slate-900 rounded-2xl p-6 space-y-6">
+                <h3 className="font-heading text-sm font-black text-white tracking-widest uppercase flex items-center gap-2">
+                  <Activity size={14} className="text-indigo-400" />
+                  Active Dispatch Orders
                 </h3>
-              </div>
 
-              <div className="space-y-5 font-sans text-xs text-slate-600">
-                
-                <div className="grid grid-cols-2 gap-4 border-b border-slate-100 pb-4">
-                  <div>
-                    <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-1">SERVICE TYPE</span>
-                    <span className="font-heading text-xs font-black text-slate-800 uppercase">{selectedBooking.service}</span>
-                  </div>
-                  <div>
-                    <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-1">TARGET DATE</span>
-                    <span className="font-mono text-xs font-bold text-slate-800">{selectedBooking.date}</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 border-b border-slate-100 pb-4">
-                  <div>
-                    <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-1">CLIENT CONTACT</span>
-                    <div className="space-y-1">
-                      <span className="text-slate-800 font-medium select-text block">{selectedBooking.email}</span>
-                      {selectedBooking.phoneNumber && (
-                        <span className="text-slate-800 font-mono font-bold select-text block">
-                          {selectedBooking.phoneCode || '+91'} {selectedBooking.phoneNumber}
-                        </span>
-                      )}
+                <div className="space-y-4">
+                  {myBookings.filter(b => b.status !== 'Completed' && b.status !== 'Cancelled').length === 0 ? (
+                    <div className="p-8 text-center text-xs text-slate-500 font-bold border border-dashed border-slate-900 rounded-xl uppercase">
+                      No active production dispatches assigned to you.
                     </div>
-                  </div>
-                  <div>
-                    <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-1">PREFERRED CALL TIME</span>
-                    <span className="text-slate-800 font-medium block">{selectedBooking.preferredTime || 'Anytime'}</span>
-                  </div>
-                </div>
-
-                {selectedBooking.locationState && (
-                  <div className="border-b border-slate-100 pb-4">
-                    <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-2">SHOOT LOCATION DETAILED</span>
-                    <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3.5 border border-slate-100 rounded-xl">
-                      <div>
-                        <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Venue / Landmark</span>
-                        <span className="text-slate-800 font-semibold text-[11px] block">{selectedBooking.locationVenue}</span>
-                      </div>
-                      <div>
-                        <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Area / Pincode</span>
-                        <span className="text-slate-800 font-semibold text-[11px] block">{selectedBooking.locationArea} {selectedBooking.pincode && `- ${selectedBooking.pincode}`}</span>
-                      </div>
-                      <div className="col-span-2 border-t border-slate-200/60 pt-2 mt-1">
-                        <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">District & State</span>
-                        <span className="text-slate-800 font-semibold text-[11px] block">{selectedBooking.locationDistrict}, {selectedBooking.locationState}</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-4 border-b border-slate-100 pb-4">
-                  <div>
-                    <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-1">PAYMENT RATE</span>
-                    <span className="text-xs font-bold text-slate-800 font-mono">₹{selectedBooking.price.toLocaleString()}</span>
-                  </div>
-                  <div>
-                    <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-1">PAYMENT STATUS</span>
-                    <span className={`text-[10px] font-bold tracking-widest px-2 py-0.5 rounded-full inline-block border ${
-                      selectedBooking.paymentStatus === 'PAID' 
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                        : 'bg-amber-50 text-amber-700 border-amber-200'
-                    }`}>
-                      {selectedBooking.paymentStatus.toUpperCase()}
-                    </span>
-                  </div>
-                </div>
-
-                <div>
-                  <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-2">TELEMETRY & INSTRUCTIONS</span>
-                  <p className="bg-slate-50 p-4 border border-slate-100 rounded-xl font-mono text-[11px] leading-relaxed select-text whitespace-pre-line text-slate-600">
-                    {selectedBooking.message}
-                  </p>
-                </div>
-
-                <div className="pt-4 border-t border-slate-100 flex gap-3">
-                  {selectedBooking.status === 'CONFIRMED' && (
-                    <button
-                      onClick={() => {
-                        const updated = bookings.map(b => b.id === selectedBooking.id ? { ...b, status: 'COMPLETED' } : b)
-                        localStorage.setItem('mcs_global_bookings', JSON.stringify(updated))
-                        setBookings(updated)
-                        setSelectedBooking({ ...selectedBooking, status: 'COMPLETED' })
-                        toast.success(`Shoot marked as completed. Invoice status synced.`)
-                      }}
-                      className="w-full py-3 bg-indigo-600 text-white font-heading text-[10px] font-black tracking-widest uppercase hover:bg-indigo-700 transition-all rounded-lg shadow-sm flex items-center justify-center gap-1.5 cursor-pointer border-0"
-                    >
-                      <Check size={12} />
-                      Complete Dispatch Assignment
-                    </button>
-                  )}
-                  
-                  <button
-                    onClick={() => setSelectedBooking(null)}
-                    className="w-full py-3 border border-slate-200 hover:bg-slate-50 text-slate-700 font-heading text-[10px] font-black tracking-widest uppercase transition-colors cursor-pointer bg-white rounded-lg"
-                  >
-                    Dismiss Details
-                  </button>
-                </div>
-
-              </div>
-
-            </div>
-          </div>
-        )}
-
-        <footer className="py-8 bg-white border-t border-slate-200 text-center text-[10px] font-bold tracking-widest text-slate-400 uppercase">
-          © {new Date().getFullYear()} MR. CINEMATICSHOOT. OPERATIONS CENTER.
-        </footer>
-        <Toaster position="top-right" richColors />
-      </div>
-    )
-  }
-
-  // RENDER GATE 3: ADMINISTRATOR PORTAL
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-700 flex flex-col font-sans">
-      
-      {/* Top operational bar */}
-      <header className="bg-slate-900 border-b border-slate-800 text-white px-6 md:px-12 py-4 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-0 z-40">
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-indigo-500 flex items-center justify-center text-white font-bold text-sm shadow-md">
-            M
-          </div>
-          <div className="text-left">
-            <h1 className="font-heading text-sm font-black tracking-[0.15em] text-white uppercase leading-none">
-              MR. <span className="text-indigo-400">CINEMATICSHOOT</span>
-            </h1>
-            <span className="text-[9px] text-slate-400 tracking-wider font-bold uppercase mt-1 block">
-              Administrative Control Deck
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => setShowSyncModal(true)}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 hover:border-slate-600 text-[10px] font-bold tracking-wider rounded uppercase flex items-center gap-1.5 transition-all cursor-pointer"
-          >
-            <Database size={11} />
-            Data Sync
-          </button>
-          
-          <button
-            onClick={handleLogout}
-            className="px-3.5 py-1.5 border border-slate-700 hover:border-red-500 hover:text-red-400 text-xs font-black tracking-widest uppercase flex items-center gap-1.5 transition-all cursor-pointer rounded-lg bg-slate-800 text-slate-300"
-          >
-            <LogOut size={12} />
-            Lock Console
-          </button>
-        </div>
-      </header>
-
-      {/* Main navigation menu for admin */}
-      <div className="bg-white border-b border-slate-200 shadow-sm px-6 md:px-12 overflow-x-auto flex">
-        <div className="max-w-7xl mx-auto w-full flex gap-1">
-          {[
-            { id: 'OVERVIEW', label: 'Overview Metrics', icon: <Activity size={14} /> },
-            { id: 'BOOKINGS', label: 'Manage Bookings', icon: <Calendar size={14} /> },
-            { id: 'FINANCES', label: 'Monthly Ledgers', icon: <DollarSign size={14} /> },
-            { id: 'TEAM', label: 'Active Roster', icon: <Users size={14} /> },
-            { id: 'APPLICATIONS', label: 'Crew Job Candidates', icon: <FileText size={14} /> },
-            { id: 'WEBSITE', label: 'Website Controls', icon: <Globe size={14} /> },
-            { id: 'SYSTEM', label: 'Database Tools', icon: <Database size={14} /> }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setAdminTab(tab.id as any)}
-              className={`py-4 px-4 text-xs font-bold tracking-wider uppercase border-b-2 flex items-center gap-2 whitespace-nowrap transition-all cursor-pointer ${
-                adminTab === tab.id 
-                  ? 'border-indigo-600 text-indigo-600 font-extrabold bg-indigo-50/10' 
-                  : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Dashboard Panels */}
-      <main className="w-full max-w-7xl mx-auto px-6 md:px-12 py-8 flex-1 animate-fade-in">
-        
-        {/* A. OVERVIEW METRICS TAB */}
-        {adminTab === 'OVERVIEW' && (
-          <div className="space-y-8">
-            
-            {/* Analytics numerical blocks */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              
-              <div className="clean-card p-6 rounded-2xl flex items-center justify-between">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Bookings</span>
-                  <h3 className="text-2xl font-black text-slate-800 font-heading">{bookings.length}</h3>
-                  <span className="text-[10px] text-indigo-500 font-semibold uppercase">Active Clients</span>
-                </div>
-                <div className="h-10 w-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600 border border-indigo-100">
-                  <Calendar size={18} />
-                </div>
-              </div>
-
-              <div className="clean-card p-6 rounded-2xl flex items-center justify-between">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Gross Revenue Paid</span>
-                  <h3 className="text-2xl font-black text-emerald-600 font-heading">₹{grossPaid.toLocaleString()}</h3>
-                  <span className="text-[10px] text-slate-400">Total Cleared Invoices</span>
-                </div>
-                <div className="h-10 w-10 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600 border border-emerald-100">
-                  <DollarSign size={18} />
-                </div>
-              </div>
-
-              <div className="clean-card p-6 rounded-2xl flex items-center justify-between">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pending Receivables</span>
-                  <h3 className="text-2xl font-black text-amber-600 font-heading">₹{pendingReceivables.toLocaleString()}</h3>
-                  <span className="text-[10px] text-slate-400">Awaiting Invoice Clears</span>
-                </div>
-                <div className="h-10 w-10 bg-amber-50 rounded-xl flex items-center justify-center text-amber-600 border border-amber-100">
-                  <Clock size={18} />
-                </div>
-              </div>
-
-              <div className="clean-card p-6 rounded-2xl flex items-center justify-between">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Roster Size</span>
-                  <h3 className="text-2xl font-black text-slate-800 font-heading">{teamMembers.length}</h3>
-                  <span className="text-[10px] text-slate-400">Active Crew Dispatch</span>
-                </div>
-                <div className="h-10 w-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-600 border border-slate-200">
-                  <Users size={18} />
-                </div>
-              </div>
-
-            </div>
-
-            {/* Graphs / Visual telemetry charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              
-              <div className="lg:col-span-8 clean-card p-6 rounded-2xl space-y-4">
-                <div className="flex justify-between items-center border-b border-slate-100 pb-4">
-                  <h4 className="font-heading text-sm font-black text-slate-800 uppercase tracking-wide">
-                    Gross Monthly Revenue Ledger
-                  </h4>
-                  <span className="text-[9px] font-bold uppercase text-slate-400 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded">
-                    Total: ₹{totalValuation.toLocaleString()}
-                  </span>
-                </div>
-                
-                {chartData.length > 0 ? (
-                  <div className="h-72 w-full text-xs">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="name" stroke="#64748b" />
-                        <YAxis stroke="#64748b" />
-                        <Tooltip 
-                          contentStyle={{ 
-                            background: '#ffffff', 
-                            border: '1px solid #e2e8f0', 
-                            borderRadius: '8px',
-                            color: '#1e293b'
-                          }} 
-                        />
-                        <Bar dataKey="paid" name="Paid (₹)" fill="#10b981" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="pending" name="Pending (₹)" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <div className="h-72 flex items-center justify-center text-slate-400 text-xs tracking-wider">
-                    NO SUFFICIENT FINANCE LEDGER DATA TO RENDER GRAPH.
-                  </div>
-                )}
-              </div>
-
-              {/* Today's dispatched operations */}
-              <div className="lg:col-span-4 clean-card p-6 rounded-2xl space-y-4">
-                <h4 className="font-heading text-sm font-black text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-4">
-                  Today's Dispatches ({bookings.filter(b => b.date === todayStr && b.status === 'CONFIRMED').length})
-                </h4>
-
-                <div className="space-y-3 overflow-y-auto max-h-72 pr-1">
-                  {bookings.filter(b => b.date === todayStr && b.status === 'CONFIRMED').length > 0 ? (
-                    bookings.filter(b => b.date === todayStr && b.status === 'CONFIRMED').map(b => (
-                      <div key={b.id} className="p-3 border border-indigo-100 bg-indigo-50/20 rounded-xl text-left space-y-1">
-                        <div className="flex justify-between items-center">
-                          <span className="font-mono text-[9px] text-slate-400 font-bold">{b.id}</span>
-                          <span className="text-[8px] font-bold text-indigo-700 bg-indigo-100/50 px-1.5 py-0.25 rounded uppercase">
-                            {b.assignedTo}
-                          </span>
-                        </div>
-                        <h5 className="font-heading text-xs font-bold text-slate-800 truncate uppercase">{b.name}</h5>
-                        <p className="text-[10px] text-slate-500 font-medium truncate">{b.service}</p>
-                      </div>
-                    ))
                   ) : (
-                    <div className="py-12 text-center text-xs text-slate-400 font-semibold tracking-wider">
-                      NO ACTIVE DISPATCHES SCHEDULED FOR TODAY.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-            </div>
-
-          </div>
-        )}
-
-        {/* B. MANAGE BOOKINGS TAB */}
-        {adminTab === 'BOOKINGS' && (
-          <div className="space-y-6">
-            
-            {/* Filter & search headers */}
-            <div className="clean-card p-4 rounded-xl grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-              <div className="relative">
-                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  value={bookingSearch}
-                  onChange={(e) => setBookingSearch(e.target.value)}
-                  placeholder="Search client name, ID, service..."
-                  className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600"
-                />
-              </div>
-
-              <div>
-                <select
-                  value={bookingFilterStatus}
-                  onChange={(e) => setBookingFilterStatus(e.target.value)}
-                  className="w-full border border-slate-200 rounded-lg py-2 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 text-slate-600 cursor-pointer"
-                >
-                  <option value="ALL">Status: All Bookings</option>
-                  <option value="PENDING DIRECTORS REVIEW">Pending Director Review</option>
-                  <option value="CONFIRMED">Confirmed Shoots</option>
-                  <option value="COMPLETED">Completed Productions</option>
-                  <option value="CANCELLED">Cancelled</option>
-                </select>
-              </div>
-
-              <div>
-                <select
-                  value={bookingFilterService}
-                  onChange={(e) => setBookingFilterService(e.target.value)}
-                  className="w-full border border-slate-200 rounded-lg py-2 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 text-slate-600 cursor-pointer"
-                >
-                  <option value="ALL">Service: All Services</option>
-                  <option value="INFLUENCER BRANDING">Influencer Branding</option>
-                  <option value="LUXURY AUTOMOTIVE">Luxury Automotive</option>
-                  <option value="EDITORIAL FASHION">Editorial Fashion</option>
-                  <option value="COMMERCIAL CAMPAIGNS">Commercial Campaigns</option>
-                </select>
-              </div>
-
-              <div className="text-right text-xs font-bold text-slate-500 pr-2">
-                Matching: {filteredBookings.length} bookings
-              </div>
-            </div>
-
-            {/* List of bookings */}
-            <div className="clean-card rounded-2xl overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-slate-900 text-white font-heading text-[10px] tracking-wider uppercase border-b border-slate-800">
-                      <th className="p-4">ID</th>
-                      <th className="p-4">Client / Brand</th>
-                      <th className="p-4">Service</th>
-                      <th className="p-4">Date</th>
-                      <th className="p-4">Assigned Partner</th>
-                      <th className="p-4">Rate (₹)</th>
-                      <th className="p-4">Payment</th>
-                      <th className="p-4">Operational Status</th>
-                      <th className="p-4 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
-                    {filteredBookings.length > 0 ? (
-                      filteredBookings.map((b) => (
-                        <tr key={b.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="p-4 font-mono font-bold text-slate-400">{b.id}</td>
-                          <td className="p-4">
-                            <span className="font-bold text-slate-900 block uppercase">{b.name}</span>
-                            <span className="text-[10px] text-slate-400 select-text">{b.email}</span>
-                          </td>
-                          <td className="p-4">
-                            <span className="text-[10px] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded uppercase font-bold text-slate-600">
+                    myBookings.filter(b => b.status !== 'Completed' && b.status !== 'Cancelled').map(b => (
+                      <div key={b.id} className="bg-slate-950/40 border border-slate-900 rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:border-slate-800 transition-all">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono text-indigo-400 font-bold">{b.id}</span>
+                            <span className="px-2 py-0.5 bg-slate-900 text-[8px] font-bold tracking-widest uppercase rounded text-slate-400 border border-slate-800">
                               {b.service}
                             </span>
-                          </td>
-                          <td className="p-4 font-mono">{b.date}</td>
-                          <td className="p-4">
-                            <select
-                              value={b.assignedTo}
-                              onChange={(e) => handleAssignCrew(b.id, e.target.value)}
-                              className="border border-slate-200 rounded px-2 py-1 text-[11px] bg-white cursor-pointer focus:outline-none focus:border-indigo-600 font-medium"
-                            >
-                              <option value="UNASSIGNED">UNASSIGNED</option>
-                              {teamMembers.map(t => {
-                                const status = getCrewStatusForDate(t.name, b.date, b.id)
-                                const badge = status === 'AVAILABLE' ? '🟢' : status === 'BUSY ON THIS DAY' ? '🟡' : '🔴'
-                                return (
-                                  <option key={t.name} value={t.name}>
-                                    {badge} {t.name.toUpperCase()} ({status})
-                                  </option>
-                                )
-                              })}
-                            </select>
-                          </td>
-                          <td className="p-4 font-bold text-slate-800">₹{b.price.toLocaleString()}</td>
-                          <td className="p-4">
-                            <select
-                              value={b.paymentStatus}
-                              onChange={(e) => handleUpdatePaymentStatus(b.id, e.target.value)}
-                              className={`border rounded px-2 py-1 text-[10px] font-bold cursor-pointer focus:outline-none ${
-                                b.paymentStatus === 'PAID' 
-                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700' 
-                                  : 'border-amber-200 bg-amber-50 text-amber-700'
-                              }`}
-                            >
-                              <option value="PENDING">PENDING</option>
-                              <option value="PAID">PAID</option>
-                            </select>
-                          </td>
-                          <td className="p-4">
-                            <select
-                              value={b.status}
-                              onChange={(e) => handleUpdateBookingStatus(b.id, e.target.value)}
-                              className={`border rounded px-2 py-1 text-[10px] font-bold cursor-pointer focus:outline-none ${
-                                b.status === 'COMPLETED' 
-                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                  : b.status === 'CONFIRMED'
-                                    ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
-                                    : b.status === 'CANCELLED'
-                                      ? 'border-red-200 bg-red-50 text-red-700'
-                                      : 'border-slate-200 bg-slate-50 text-slate-600'
-                              }`}
-                            >
-                              <option value="PENDING DIRECTORS REVIEW">PENDING DIRECTORS REVIEW</option>
-                              <option value="CONFIRMED">CONFIRMED</option>
-                              <option value="COMPLETED">COMPLETED</option>
-                              <option value="CANCELLED">CANCELLED</option>
-                            </select>
-                          </td>
-                          <td className="p-4 text-center">
-                            <button
-                              onClick={() => setSelectedBooking(b)}
-                              className="px-2.5 py-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded transition-all cursor-pointer hover:border-slate-400 font-bold"
-                            >
-                              Details
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={9} className="py-12 text-center text-slate-400 font-bold tracking-wider">
-                          NO ACTIVE BOOKINGS MATCH YOUR SEARCH CRITERIA.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-          </div>
-        )}
-
-        {/* C. MONTHLY FINANCES TAB */}
-        {adminTab === 'FINANCES' && (
-          <div className="space-y-8 animate-fade-in">
-            
-            {/* Overview numerical headers */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="clean-card p-6 rounded-2xl bg-white space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Operational Gross Earnings</span>
-                <h3 className="text-3xl font-black text-emerald-600 font-heading">₹{grossPaid.toLocaleString()}</h3>
-                <p className="text-[10px] text-slate-400 font-semibold uppercase">Total cleared invoicing records</p>
-              </div>
-
-              <div className="clean-card p-6 rounded-2xl bg-white space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Pending Dispatch Receivables</span>
-                <h3 className="text-3xl font-black text-amber-600 font-heading">₹{pendingReceivables.toLocaleString()}</h3>
-                <p className="text-[10px] text-slate-400 font-semibold uppercase">Outstanding invoices on shoots</p>
-              </div>
-
-              <div className="clean-card p-6 rounded-2xl bg-white space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Combined Operational Valuation</span>
-                <h3 className="text-3xl font-black text-slate-900 font-heading">₹{totalValuation.toLocaleString()}</h3>
-                <p className="text-[10px] text-slate-400 font-semibold uppercase">Sum gross valuation of bookings</p>
-              </div>
-            </div>
-
-            {/* Monthly breakdown groups */}
-            <div className="space-y-6">
-              <h3 className="font-heading text-sm font-black text-slate-800 uppercase tracking-wider block border-b border-slate-200 pb-3">
-                Monthly Accounting Ledgers
-              </h3>
-
-              {chartData.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {chartData.map((m: any) => {
-                    const totalMonthVal = m.paid + m.pending
-                    const ratioPaid = totalMonthVal > 0 ? Math.round((m.paid / totalMonthVal) * 100) : 0
-                    
-                    return (
-                      <div key={m.name} className="clean-card p-6 rounded-2xl space-y-4">
-                        <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                          <h4 className="font-heading text-base font-black text-slate-900 uppercase">
-                            {m.name}
-                          </h4>
-                          <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 font-heading">
-                            {m.count} Shoots
-                          </span>
+                          </div>
+                          <h4 className="font-heading text-sm font-bold text-white uppercase">{b.name}</h4>
+                          <p className="text-xs text-slate-400 font-medium">Date: {b.date} | Preferred Time: {b.preferredTime || 'Anytime'}</p>
+                          <p className="text-[11px] text-slate-500">{b.locationVenue}, {b.locationDistrict}</p>
                         </div>
-
-                        <div className="grid grid-cols-2 gap-4 text-xs font-heading">
-                          <div className="bg-emerald-50/30 p-3 border border-emerald-100/50 rounded-xl">
-                            <span className="text-[9px] text-emerald-700 block font-bold uppercase tracking-wider">Cleared PAID</span>
-                            <span className="text-lg font-black text-emerald-600 font-heading">₹{m.paid.toLocaleString()}</span>
-                          </div>
-                          
-                          <div className="bg-amber-50/30 p-3 border border-amber-100/50 rounded-xl">
-                            <span className="text-[9px] text-amber-700 block font-bold uppercase tracking-wider">Awaiting PENDING</span>
-                            <span className="text-lg font-black text-amber-600 font-heading">₹{m.pending.toLocaleString()}</span>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1.5 pt-2">
-                          <div className="flex justify-between text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                            <span>Cleared Ratio</span>
-                            <span>{ratioPaid}%</span>
-                          </div>
-                          <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden flex">
-                            <div 
-                              style={{ width: `${ratioPaid}%` }} 
-                              className="bg-emerald-500 h-full rounded-full transition-all duration-500" 
-                            />
-                          </div>
-                        </div>
-
-                        <div className="pt-2 text-right">
-                          <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">
-                            Ledger Total: ₹{totalMonthVal.toLocaleString()}
-                          </span>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => setSelectedBooking(b)}
+                            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-heading text-[9px] font-black tracking-widest rounded uppercase cursor-pointer transition-all border-0"
+                          >
+                            Dispatch Details
+                          </button>
+                          <button
+                            onClick={() => handleUpdateBookingStatus(b.id, 'Completed')}
+                            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-heading text-[9px] font-black tracking-widest rounded uppercase cursor-pointer transition-all border-0 shadow-md shadow-indigo-600/10"
+                          >
+                            Mark Completed
+                          </button>
                         </div>
                       </div>
-                    )
-                  })}
+                    ))
+                  )}
                 </div>
-              ) : (
-                <div className="p-12 text-center text-xs text-slate-400 font-bold border border-dashed border-slate-200 rounded-2xl uppercase">
-                  NO ACTIVE FINANCIAL LEDGER STATS SAVED.
+              </div>
+
+              {/* PAST COMPLETED LOGS */}
+              <div className="bg-slate-900/30 border border-slate-900 rounded-2xl p-6 space-y-6">
+                <h3 className="font-heading text-sm font-black text-slate-400 tracking-widest uppercase flex items-center gap-2">
+                  <Check size={14} className="text-slate-500" />
+                  Past Completed Logs
+                </h3>
+
+                <div className="space-y-4">
+                  {myBookings.filter(b => b.status === 'Completed').length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-600 font-bold uppercase">
+                      No completed shoots logged.
+                    </div>
+                  ) : (
+                    myBookings.filter(b => b.status === 'Completed').map(b => (
+                      <div key={b.id} className="flex justify-between items-center text-xs py-3 border-b border-slate-900/50">
+                        <div>
+                          <span className="font-mono text-[10px] text-slate-500 mr-2 font-bold">{b.id}</span>
+                          <span className="font-bold text-white uppercase">{b.name}</span>
+                          <span className="text-slate-500 text-[10px] ml-2">({b.service})</span>
+                        </div>
+                        <span className="text-slate-400 font-medium">{b.date}</span>
+                      </div>
+                    ))
+                  )}
                 </div>
-              )}
+              </div>
+            </div>
+          </main>
+        </div>
+      )}
+
+      {/* ADMINISTRATOR VIEW */}
+      {authRole === 'ADMIN' && (
+        <div className="flex-1 flex flex-col bg-slate-950 text-slate-100">
+          {/* HEADER CONTROL DECK */}
+          <header className="border-b border-slate-900 bg-slate-900/20 backdrop-blur-xl px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-40">
+            <div className="flex items-center gap-3">
+              <h2 className="font-heading text-sm font-black tracking-[0.2em] text-white uppercase">
+                ADMIN CONTROL DECK
+              </h2>
+              <span className="px-2.5 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[8px] font-bold rounded-full tracking-wider uppercase">
+                Supabase Connected
+              </span>
             </div>
 
-          </div>
-        )}
-
-        {/* D. ACTIVE ROSTER TAB */}
-        {adminTab === 'TEAM' && (
-          <div className="space-y-6 animate-fade-in">
-            
-            {/* Header controls */}
-            <div className="flex justify-between items-center border-b border-slate-200 pb-4">
-              <h3 className="font-heading text-sm font-black text-slate-800 uppercase tracking-wider">
-                Photographers & Cinematographers Roster ({teamMembers.length})
-              </h3>
+            <div className="flex items-center gap-3">
               <button
-                onClick={() => setShowAddCrewModal(true)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-black tracking-widest uppercase font-heading flex items-center gap-1.5 transition-all shadow-md shadow-indigo-600/10 cursor-pointer border-0"
+                onClick={() => setShowSyncModal(true)}
+                className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 font-heading text-[9px] font-black tracking-widest rounded uppercase cursor-pointer border-0 transition-all flex items-center gap-1.5"
               >
-                <Plus size={14} />
-                Enroll Partner
+                <Database size={11} />
+                Data Sync
+              </button>
+              <button
+                onClick={handleLogout}
+                className="px-3.5 py-2 bg-slate-900 hover:bg-red-950/20 hover:text-red-400 text-slate-400 font-heading text-[9px] font-black tracking-widest rounded uppercase cursor-pointer border-0 transition-all flex items-center gap-1.5"
+              >
+                <LogOut size={11} />
+                Lock Console
               </button>
             </div>
+          </header>
 
-            {/* Roster database grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {teamMembers.map(t => (
-                <div key={t.name} className="clean-card p-6 rounded-2xl flex flex-col justify-between space-y-5 relative overflow-hidden">
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-start">
-                      <span className={`inline-block px-2.5 py-0.5 border text-[9px] font-bold tracking-widest uppercase rounded-full ${
-                        t.availability === 'AVAILABLE' 
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700' 
-                          : t.availability === 'ON SHOOT'
-                            ? 'border-indigo-200 bg-indigo-50 text-indigo-700 animate-pulse'
-                            : 'border-slate-200 bg-slate-100 text-slate-400'
-                      }`}>
-                        {t.availability}
-                      </span>
-                      
-                      <button
-                        onClick={() => handleDeleteCrew(t.name)}
-                        className="text-slate-300 hover:text-red-500 transition-colors cursor-pointer bg-transparent border-0 p-1"
-                        title="Remove member"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-
-                    <div>
-                      <h4 className="font-heading text-base font-black text-slate-900 tracking-wide uppercase">
-                        {t.name}
-                      </h4>
-                      <span className="text-[10px] text-indigo-600 tracking-widest uppercase font-bold block mt-0.5">
-                        {t.role}
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-slate-500 font-medium border-t border-slate-100 pt-3 lowercase">
-                      <span className="font-bold text-[9px] uppercase tracking-wider block text-slate-400 mb-0.5">Specialization</span>
-                      {t.specialty}
-                    </p>
-
-                    <div className="border-t border-slate-100 pt-3">
-                      <span className="font-bold text-[9px] uppercase tracking-wider block text-slate-400 mb-1">Booked Shoot Dates</span>
-                      {bookings.filter(b => b.assignedTo.toLowerCase() === t.name.toLowerCase() && b.status === 'CONFIRMED').length > 0 ? (
-                        <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-1">
-                          {bookings
-                            .filter(b => b.assignedTo.toLowerCase() === t.name.toLowerCase() && b.status === 'CONFIRMED')
-                            .map(b => (
-                              <span 
-                                key={b.id} 
-                                className="inline-block text-[9px] bg-indigo-50 border border-indigo-100 text-indigo-700 font-mono font-bold px-1.5 py-0.5 rounded cursor-help"
-                                title={`${b.service} - ${b.name}`}
-                              >
-                                📅 {b.date}
-                              </span>
-                            ))}
-                        </div>
-                      ) : (
-                        <span className="text-[10px] text-slate-400 italic block">No shoots scheduled.</span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="border-t border-slate-100 pt-4 flex gap-2">
-                    <button
-                      onClick={() => handleToggleCrewAvailabilityAdmin(t.name)}
-                      className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[9px] font-heading font-black tracking-widest rounded-lg uppercase transition-all cursor-pointer border-0"
-                    >
-                      Cycle Status
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* ENROLL MODAL */}
-            {showAddCrewModal && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
-                <div className="absolute inset-0 cursor-default" onClick={() => setShowAddCrewModal(false)} />
-                <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 border border-slate-100 z-10 animate-fade-in text-left">
-                  
+          {/* MAIN LAYOUT */}
+          <div className="flex-1 flex flex-col lg:flex-row">
+            {/* SIDE NAVIGATION */}
+            <aside className="w-full lg:w-[240px] border-r border-slate-900 bg-slate-950 p-4 space-y-1">
+              {[
+                { tab: 'OVERVIEW', label: 'Dashboard Overview', icon: Activity },
+                { tab: 'BOOKINGS', label: 'Shoot Bookings', icon: Calendar },
+                { tab: 'FINANCES', label: 'Financial Ledgers', icon: DollarSign },
+                { tab: 'TEAM', label: 'Operational Roster', icon: Users },
+                { tab: 'APPLICATIONS', label: 'Job Applications', icon: FileText },
+                { tab: 'WEBSITE', label: 'Website Controls', icon: Globe },
+                { tab: 'SYSTEM', label: 'System Settings', icon: Database },
+              ].map(item => {
+                const Icon = item.icon
+                return (
                   <button
-                    onClick={() => setShowAddCrewModal(false)}
-                    className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer bg-slate-50 hover:bg-slate-100 p-1.5 rounded-full"
+                    key={item.tab}
+                    onClick={() => setAdminTab(item.tab as any)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-heading text-[10px] font-bold tracking-widest uppercase transition-all cursor-pointer border-0 text-left ${
+                      adminTab === item.tab 
+                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10' 
+                        : 'text-slate-400 hover:bg-slate-900/40 hover:text-slate-200 bg-transparent'
+                    }`}
                   >
-                    <X size={16} />
+                    <Icon size={14} />
+                    {item.label}
                   </button>
+                )
+              })}
+            </aside>
 
-                  <h3 className="font-heading text-lg font-black text-slate-900 tracking-wide uppercase mb-6 border-b border-slate-100 pb-3">
-                    Enroll Operational Partner
-                  </h3>
-
-                  <form onSubmit={handleAddCrew} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                        Full Name
-                      </label>
-                      <input
-                        type="text"
-                        value={newCrewName}
-                        onChange={(e) => setNewCrewName(e.target.value)}
-                        placeholder="e.g. MARCUS BELLINGHAM"
-                        className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-all uppercase"
-                        required
-                      />
+            {/* TAB PANEL CONTAINER */}
+            <main className="flex-1 p-6 lg:p-8 overflow-y-auto max-w-6xl w-full mx-auto">
+              
+              {/* TAB 1: OVERVIEW */}
+              {adminTab === 'OVERVIEW' && (
+                <div className="space-y-8 animate-fade-in">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <h2 className="font-heading text-lg font-black text-white uppercase tracking-wider">Operational Overview</h2>
+                      <p className="text-xs text-slate-500 font-medium">Live metrics synced to Supabase database.</p>
                     </div>
+                  </div>
 
-                    <div className="space-y-1.5">
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                        Organizational Role
-                      </label>
-                      <input
-                        type="text"
-                        value={newCrewRole}
-                        onChange={(e) => setNewCrewRole(e.target.value)}
-                        placeholder="e.g. Lead Cine Photographer"
-                        className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-all"
-                        required
-                      />
-                    </div>
+                  {/* STATS CARDS */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {[
+                      { label: 'Total Bookings', value: bookings.length, sub: 'Inquiries & confirmed', icon: Calendar, color: 'text-indigo-400' },
+                      { label: 'Gross Revenue', value: `₹${grossPaid.toLocaleString()}`, sub: 'Paid invoices', icon: DollarSign, color: 'text-emerald-400' },
+                      { label: 'Receivables', value: `₹${pendingReceivables.toLocaleString()}`, sub: 'Pending payments', icon: Clock, color: 'text-amber-400' },
+                      { label: 'Roster Size', value: teamMembers.length, sub: 'Active creative partners', icon: Users, color: 'text-violet-400' },
+                    ].map((card, i) => {
+                      const Icon = card.icon
+                      return (
+                        <div key={i} className="bg-slate-900/20 border border-slate-900 rounded-2xl p-5 space-y-4">
+                          <div className="flex justify-between items-start">
+                            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{card.label}</span>
+                            <div className={`p-2 rounded-xl bg-slate-900 border border-slate-800 ${card.color}`}>
+                              <Icon size={14} />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <h3 className="font-heading text-2xl font-black text-white">{card.value}</h3>
+                            <p className="text-[10px] text-slate-500 font-medium">{card.sub}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
 
-                    <div className="space-y-1.5">
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                        Specialty Tag Focus
-                      </label>
-                      <input
-                        type="text"
-                        value={newCrewSpecialty}
-                        onChange={(e) => setNewCrewSpecialty(e.target.value)}
-                        placeholder="e.g. High-speed tracking reels"
-                        className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-all"
-                      />
-                    </div>
-
-                    <button
-                      type="submit"
-                      className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-heading text-xs font-black tracking-widest uppercase hover:shadow-lg transition-all cursor-pointer mt-4 border-0"
-                    >
-                      Authorize Roster Enrollment
-                    </button>
-                  </form>
-
-                </div>
-              </div>
-            )}
-
-          </div>
-        )}
-
-        {/* E. APPLICATIONS TAB */}
-        {adminTab === 'APPLICATIONS' && (
-          <div className="space-y-6 animate-fade-in">
-            <h3 className="font-heading text-sm font-black text-slate-800 uppercase tracking-wider border-b border-slate-200 pb-4">
-              Pending Candidates & Applications ({applications.length})
-            </h3>
-
-            {applications.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {applications.map(a => (
-                  <div key={a.id} className="clean-card p-6 rounded-2xl space-y-4 text-left relative">
-                    <button
-                      onClick={() => handleDeleteApp(a.id)}
-                      className="absolute top-6 right-6 text-slate-300 hover:text-red-500 transition-colors cursor-pointer bg-transparent border-0"
-                      title="Delete Candidate"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-[9px] text-slate-400 font-bold">{a.id}</span>
-                        <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 border border-indigo-100 rounded uppercase">
-                          {a.jobTitle}
-                        </span>
+                  {/* FINANCIAL CHARTS */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="lg:col-span-2 bg-slate-900/20 border border-slate-900 rounded-2xl p-6 space-y-6">
+                      <h3 className="font-heading text-xs font-bold text-slate-400 uppercase tracking-widest">Monthly Financial Inflow</h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={chartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                            <XAxis dataKey="month" stroke="#64748b" fontSize={10} tickLine={false} />
+                            <YAxis stroke="#64748b" fontSize={10} tickLine={false} />
+                            <Tooltip contentStyle={{ background: '#0f172a', borderColor: '#334155', borderRadius: 8, fontSize: 11 }} />
+                            <Bar dataKey="Paid" fill="#10b981" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="Pending" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
                       </div>
-                      <h4 className="font-heading text-base font-black text-slate-900 uppercase">
-                        {a.name}
-                      </h4>
-                      <span className="text-xs text-slate-400 select-text block">
-                        Email: {a.email}
-                      </span>
                     </div>
 
-                    <p className="bg-slate-50 p-4 border border-slate-100 rounded-xl text-xs text-slate-600 select-text font-medium italic">
-                      "{a.message}"
-                    </p>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      {a.portfolioUrl && (
-                        <a
-                          href={a.portfolioUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="px-3 py-2 border border-slate-200 hover:border-slate-400 text-center font-heading text-[10px] font-black tracking-widest text-slate-700 uppercase transition-all rounded-lg flex items-center justify-center gap-1 bg-white no-underline"
-                        >
-                          <ExternalLink size={11} />
-                          Portfolio
-                        </a>
-                      )}
-                      
-                      {a.resumeUrl && (
-                        <a
-                          href={a.resumeUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="px-3 py-2 border border-slate-200 hover:border-slate-400 text-center font-heading text-[10px] font-black tracking-widest text-slate-700 uppercase transition-all rounded-lg flex items-center justify-center gap-1 bg-white no-underline"
-                        >
-                          <FileText size={11} />
-                          Resume / CV
-                        </a>
-                      )}
-                    </div>
-
-                    <div className="border-t border-slate-100 pt-4 flex justify-between items-center">
-                      <span className={`px-2.5 py-0.5 border text-[9px] font-bold tracking-widest uppercase rounded ${
-                        a.status === 'PENDING REVIEW' 
-                          ? 'border-amber-200 bg-amber-50 text-amber-700' 
-                          : a.status === 'APPROVED' 
-                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700' 
-                            : 'border-red-200 bg-red-50 text-red-700'
-                      }`}>
-                        {a.status}
-                      </span>
-
-                      <div className="flex gap-2">
-                        {a.status === 'PENDING REVIEW' && (
-                          <>
-                            <button
-                              onClick={() => handleUpdateAppStatus(a.id, 'APPROVED')}
-                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-heading text-[8px] font-bold tracking-widest rounded uppercase cursor-pointer transition-all border-0 shadow-sm shadow-emerald-600/10"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => handleUpdateAppStatus(a.id, 'REJECTED')}
-                              className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white font-heading text-[8px] font-bold tracking-widest rounded uppercase cursor-pointer transition-all border-0 shadow-sm shadow-red-600/10"
-                            >
-                              Reject
-                            </button>
-                          </>
+                    <div className="bg-slate-900/20 border border-slate-900 rounded-2xl p-6 space-y-6">
+                      <h3 className="font-heading text-xs font-bold text-slate-400 uppercase tracking-widest">Today's Shoots</h3>
+                      <div className="space-y-4">
+                        {bookings.filter(b => b.date === todayStr && b.status === 'Confirmed').length === 0 ? (
+                          <div className="p-8 text-center text-xs text-slate-500 font-bold border border-dashed border-slate-900 rounded-xl uppercase">
+                            No production dispatches scheduled for today.
+                          </div>
+                        ) : (
+                          bookings.filter(b => b.date === todayStr && b.status === 'Confirmed').map(b => (
+                            <div key={b.id} className="p-3 bg-slate-950/40 border border-slate-900 rounded-xl space-y-1">
+                              <div className="flex justify-between items-center">
+                                <span className="font-mono text-[9px] text-indigo-400 font-bold">{b.id}</span>
+                                <span className="text-[9px] font-bold text-slate-400">{b.assignedTo}</span>
+                              </div>
+                              <h4 className="font-bold text-white uppercase text-xs">{b.name}</h4>
+                              <p className="text-[10px] text-slate-500">{b.locationVenue}</p>
+                            </div>
+                          ))
                         )}
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-12 text-center text-xs text-slate-400 font-bold border border-dashed border-slate-200 rounded-2xl uppercase">
-                NO JOB APPLICATIONS FILED YET.
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* WEBSITE CONTROLS TAB */}
-        {adminTab === 'WEBSITE' && (
-          <div className="space-y-8 text-left animate-fade-in">
-            
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              {/* Left Column: Hiring Toggle & Pricing */}
-              <div className="lg:col-span-5 space-y-6">
-                
-                {/* 1. Hiring Opening Toggle */}
-                <div className="clean-card p-6 rounded-2xl space-y-4">
-                  <h3 className="font-heading text-xs font-black tracking-widest text-slate-800 uppercase border-b border-slate-100 pb-3 flex items-center gap-2">
-                    <Users size={14} className="text-indigo-600" />
-                    Hiring Opening status
-                  </h3>
-                  
-                  <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                    Toggle active recruitment on the homepage. If toggled off, the career section will display a "No Current Hirings Available" alert page.
-                  </p>
-
-                  <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-100">
-                    <div className="space-y-0.5">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">HIRING STATE</span>
-                      <span className={`block text-xs font-bold font-heading uppercase ${
-                        careerHiring ? 'text-indigo-600' : 'text-slate-400'
-                      }`}>
-                        {careerHiring ? 'Recruitment Active' : 'Hiring Suspended'}
-                      </span>
-                    </div>
-
-                    <button
-                      onClick={() => handleToggleHiring(!careerHiring)}
-                      className={`px-4 py-2 font-heading text-[10px] font-black tracking-widest rounded-lg uppercase cursor-pointer transition-all border-0 shadow-sm ${
-                        careerHiring 
-                          ? 'bg-red-600 hover:bg-red-700 text-white shadow-red-600/10' 
-                          : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/10'
-                      }`}
-                    >
-                      {careerHiring ? 'Disable Hiring' : 'Enable Hiring'}
-                    </button>
-                  </div>
                 </div>
+              )}
 
-                {/* 2. Service Booking Pricing */}
-                <div className="clean-card p-6 rounded-2xl space-y-4">
-                  <h3 className="font-heading text-xs font-black tracking-widest text-slate-800 uppercase border-b border-slate-100 pb-3 flex items-center gap-2">
-                    <DollarSign size={14} className="text-indigo-600" />
-                    Package pricing config
-                  </h3>
-                  
-                  <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                    Adjust the booking price rates displayed in the booking form drop-down and invoice details.
-                  </p>
-
-                  <div className="space-y-3 pt-2 font-medium">
-                    {Object.keys(editingPrices).map((srv) => (
-                      <div key={srv} className="grid grid-cols-1 sm:grid-cols-12 items-center gap-2 text-xs">
-                        <span className="sm:col-span-8 font-bold text-slate-600 truncate uppercase">{srv}</span>
-                        <div className="sm:col-span-4 flex items-center border border-slate-200 rounded-lg overflow-hidden bg-white">
-                          <span className="pl-3 pr-1.5 text-slate-400 font-bold font-mono">₹</span>
-                          <input
-                            type="number"
-                            value={editingPrices[srv] || 0}
-                            onChange={(e) => {
-                              const val = parseInt(e.target.value) || 0
-                              setEditingPrices({ ...editingPrices, [srv]: val })
-                            }}
-                            className="w-full pr-3 py-1.5 border-0 focus:outline-none font-bold text-slate-800 font-mono text-xs"
-                          />
-                        </div>
-                      </div>
-                    ))}
-
-                    <button
-                      onClick={handleSavePrices}
-                      className="w-full py-3.5 bg-slate-900 hover:bg-indigo-600 text-white font-heading text-[10px] font-black tracking-widest rounded-lg uppercase cursor-pointer transition-all border-0 shadow-sm mt-3"
-                    >
-                      Save Prices Configuration
-                    </button>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Right Column: Video Reels Management */}
-              <div className="lg:col-span-7 space-y-6">
-                
-                <div className="clean-card p-6 rounded-2xl space-y-4">
-                  <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                    <h3 className="font-heading text-xs font-black tracking-widest text-slate-800 uppercase flex items-center gap-2">
-                      <Play size={14} className="text-indigo-500" />
-                      Homepage vertical reels ({reels.length})
-                    </h3>
-                    <button
-                      onClick={handleOpenAddReel}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-heading text-[9px] font-black tracking-widest rounded-lg uppercase cursor-pointer transition-all border-0 flex items-center gap-1 shadow-sm"
-                    >
-                      <Plus size={12} />
-                      Add Reel Link
-                    </button>
+              {/* TAB 2: BOOKINGS */}
+              {adminTab === 'BOOKINGS' && (
+                <div className="space-y-6 animate-fade-in">
+                  <div>
+                    <h2 className="font-heading text-lg font-black text-white uppercase tracking-wider">Shoot Bookings Ledger</h2>
+                    <p className="text-xs text-slate-500 font-medium">Manage and assign creators to incoming shoot requests.</p>
                   </div>
 
-                  <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                    Manage the 9:16 vertical video reels displayed in the homepage grid. Video URLs must point directly to direct MP4 streams.
-                  </p>
-
-                  <div className="space-y-3 pt-2">
-                    {reels.length > 0 ? (
-                      reels.map(r => (
-                        <div key={r.id} className="p-4 bg-slate-50 border border-slate-100 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                          <div className="text-xs text-left space-y-1 font-medium max-w-md">
-                            <span className="font-heading text-[9px] font-bold text-indigo-600 tracking-widest uppercase bg-indigo-50 border border-indigo-100 px-1.5 py-0.25 rounded">
-                              REEL ID: {r.id}
-                            </span>
-                            <h4 className="font-bold text-slate-800 uppercase truncate">{r.title}</h4>
-                            <p className="text-[10px] text-slate-400 font-mono truncate select-text">{r.videoUrl}</p>
-                            <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">
-                              Views: {r.views} • Likes: {r.likes}
-                            </span>
-                          </div>
-
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleOpenEditReel(r)}
-                              className="px-2.5 py-1.5 border border-slate-200 hover:border-slate-400 text-[9px] font-black uppercase text-slate-700 bg-white rounded cursor-pointer transition-all flex items-center gap-1 font-heading"
-                            >
-                              <Edit size={10} />
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleDeleteReel(r.id)}
-                              className="px-2.5 py-1.5 border border-red-200 hover:border-red-500 text-[9px] font-black uppercase text-red-600 bg-white rounded cursor-pointer transition-all flex items-center gap-1 font-heading hover:bg-red-50"
-                            >
-                              <Trash2 size={10} />
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="p-8 text-center text-xs text-slate-400 font-semibold border border-dashed border-slate-200 rounded-xl uppercase">
-                        NO VERTICAL REELS DATABASE RECORDS SAVED.
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-              </div>
-            </div>
-
-            {/* REEL FORM DIALOG MODAL */}
-            {showReelModal && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
-                <div className="absolute inset-0 cursor-default" onClick={() => setShowReelModal(false)} />
-                <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 border border-slate-100 z-10 animate-fade-in text-left">
-                  
-                  <button
-                    onClick={() => setShowReelModal(false)}
-                    className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer bg-slate-50 hover:bg-slate-100 p-1.5 rounded-full"
-                  >
-                    <X size={16} />
-                  </button>
-
-                  <h3 className="font-heading text-lg font-black text-slate-900 tracking-wide uppercase mb-6 border-b border-slate-100 pb-3">
-                    {reelEditId !== null ? 'Modify Video Reel Link' : 'Register Homepage Video Reel'}
-                  </h3>
-
-                  <form onSubmit={handleSaveReel} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                        Reel Title / Label
-                      </label>
+                  {/* FILTERS */}
+                  <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-slate-900/20 border border-slate-900 p-4 rounded-2xl">
+                    <div className="relative w-full md:w-72">
+                      <Search className="absolute left-3 top-3 text-slate-500" size={14} />
                       <input
                         type="text"
-                        value={reelFormTitle}
-                        onChange={(e) => setReelFormTitle(e.target.value)}
-                        placeholder="e.g. Anamorphic Cinematic Drive"
-                        className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-all uppercase"
-                        required
+                        value={bookingSearch}
+                        onChange={(e) => setBookingSearch(e.target.value)}
+                        placeholder="Search Client or ID..."
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 transition-colors"
                       />
                     </div>
 
-                    <div className="space-y-1.5">
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                        Direct MP4 Video Stream URL
-                      </label>
-                      <input
-                        type="url"
-                        value={reelFormVideoUrl}
-                        onChange={(e) => setReelFormVideoUrl(e.target.value)}
-                        placeholder="https://assets.mixkit.co/.../stream.mp4"
-                        className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-all"
-                        required
-                      />
+                    <div className="flex gap-4 w-full md:w-auto">
+                      <select
+                        value={bookingFilterStatus}
+                        onChange={(e) => setBookingFilterStatus(e.target.value)}
+                        className="flex-1 md:flex-none bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none"
+                      >
+                        <option value="ALL">All Statuses</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Confirmed">Confirmed</option>
+                        <option value="Completed">Completed</option>
+                        <option value="Cancelled">Cancelled</option>
+                      </select>
+
+                      <select
+                        value={bookingFilterService}
+                        onChange={(e) => setBookingFilterService(e.target.value)}
+                        className="flex-1 md:flex-none bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none"
+                      >
+                        <option value="ALL">All Categories</option>
+                        {Array.from(new Set(bookings.map(b => b.service))).map(svc => (
+                          <option key={svc} value={svc}>{svc}</option>
+                        ))}
+                      </select>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                          Views Stats
-                        </label>
-                        <input
-                          type="text"
-                          value={reelFormViews}
-                          onChange={(e) => setReelFormViews(e.target.value)}
-                          placeholder="e.g. 1.2M"
-                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-all"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                          Likes Stats
-                        </label>
-                        <input
-                          type="text"
-                          value={reelFormLikes}
-                          onChange={(e) => setReelFormLikes(e.target.value)}
-                          placeholder="e.g. 150K"
-                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-all"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="submit"
-                      className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-heading text-xs font-black tracking-widest uppercase hover:shadow-lg transition-all cursor-pointer mt-4 border-0"
-                    >
-                      {reelEditId !== null ? 'Update Live Reel Settings' : 'Publish Live Homepage Reel'}
-                    </button>
-                  </form>
-
-                </div>
-              </div>
-            )}
-
-          </div>
-        )}
-
-        {/* F. DATABASE TOOLS TAB */}
-        {adminTab === 'SYSTEM' && (
-          <div className="space-y-6 max-w-xl mx-auto text-left animate-fade-in">
-            <div className="clean-card p-6 rounded-2xl space-y-6">
-              <h3 className="font-heading text-base font-black text-slate-900 border-b border-slate-100 pb-3 uppercase tracking-wide">
-                Database Core Operations
-              </h3>
-
-              <div className="space-y-4 text-xs font-medium">
-                
-                <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-2">
-                  <h4 className="font-bold text-slate-800 uppercase tracking-wide">Clipboard Export / Migration</h4>
-                  <p className="text-slate-500 leading-relaxed text-[11px]">
-                    Copies the entire active database payload (bookings, team members, applications) as a JSON string to your clipboard.
-                  </p>
-                  <button
-                    onClick={handleExportData}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-heading text-[10px] font-black tracking-widest rounded-lg uppercase cursor-pointer transition-all flex items-center gap-1.5 shadow-sm border-0"
-                  >
-                    <Download size={13} />
-                    Copy Database Payload
-                  </button>
-                </div>
-
-                <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-2">
-                  <h4 className="font-bold text-slate-800 uppercase tracking-wide">Data Import Payload</h4>
-                  <p className="text-slate-500 leading-relaxed text-[11px]">
-                    Allows you to overwrite the current workspace database state. Paste a copied operational payload into the sync module.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setImportText('')
-                      setShowSyncModal(true)
-                    }}
-                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-heading text-[10px] font-black tracking-widest rounded-lg uppercase cursor-pointer transition-all flex items-center gap-1.5 shadow-sm border-0"
-                  >
-                    <Upload size={13} />
-                    Open Sync Module
-                  </button>
-                </div>
-
-                <div className="p-4 bg-red-50/50 border border-red-100 rounded-xl space-y-2">
-                  <h4 className="font-bold text-red-800 uppercase tracking-wide">Danger Zone: Database Reset</h4>
-                  <p className="text-slate-500 leading-relaxed text-[11px]">
-                    Clears all active database entries in local storage and seeds the initial default crew member list and booking logs.
-                  </p>
-                  <button
-                    onClick={handleResetDefaults}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-heading text-[10px] font-black tracking-widest rounded-lg uppercase cursor-pointer transition-all flex items-center gap-1.5 shadow-sm border-0"
-                  >
-                    <Trash2 size={13} />
-                    Reset to Default Seed Data
-                  </button>
-                </div>
-
-              </div>
-            </div>
-          </div>
-        )}
-
-      </main>
-
-      {/* Detail Overlay modal for single booking details (Admin View) */}
-      {selectedBooking && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
-          <div className="absolute inset-0 cursor-default" onClick={() => setSelectedBooking(null)} />
-          
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-xl p-8 border border-slate-100 z-10 animate-fade-in text-left">
-            <button
-              onClick={() => setSelectedBooking(null)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer bg-slate-50 hover:bg-slate-100 p-1.5 rounded-full"
-            >
-              <X size={16} />
-            </button>
-
-            <div className="mb-6 border-b border-slate-100 pb-4">
-              <span className="font-heading text-[10px] font-black tracking-widest text-indigo-600 uppercase block mb-1">
-                Booking Dispatch Metadata
-              </span>
-              <h3 className="font-heading text-lg font-black text-slate-900 tracking-wide uppercase">
-                {selectedBooking.id} / {selectedBooking.name}
-              </h3>
-            </div>
-
-            <div className="space-y-4 font-sans text-xs text-slate-600">
-              
-              <div className="grid grid-cols-2 gap-4 border-b border-slate-100 pb-4">
-                <div>
-                  <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-1">SERVICE TYPE</span>
-                  <span className="font-heading text-xs font-black text-slate-800 uppercase">{selectedBooking.service}</span>
-                </div>
-                <div>
-                  <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-1">TARGET DATE</span>
-                  <span className="font-mono text-xs font-bold text-slate-800">{selectedBooking.date}</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 border-b border-slate-100 pb-4">
-                <div>
-                  <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-1">CLIENT CONTACT</span>
-                  <div className="space-y-1">
-                    <span className="text-slate-800 font-medium select-text block">{selectedBooking.email}</span>
-                    {selectedBooking.phoneNumber && (
-                      <span className="text-slate-800 font-mono font-bold select-text block">
-                        {selectedBooking.phoneCode || '+91'} {selectedBooking.phoneNumber}
-                      </span>
-                    )}
                   </div>
-                </div>
-                <div>
-                  <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-1">PREFERRED CALL TIME</span>
-                  <span className="text-slate-800 font-medium block">{selectedBooking.preferredTime || 'Anytime'}</span>
-                </div>
-              </div>
 
-              {selectedBooking.locationState && (
-                <div className="border-b border-slate-100 pb-4">
-                  <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-2">SHOOT LOCATION DETAILED</span>
-                  <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3.5 border border-slate-100 rounded-xl">
-                    <div>
-                      <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Venue / Landmark</span>
-                      <span className="text-slate-800 font-semibold text-[11px] block">{selectedBooking.locationVenue}</span>
-                    </div>
-                    <div>
-                      <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Area / Pincode</span>
-                      <span className="text-slate-800 font-semibold text-[11px] block">{selectedBooking.locationArea} {selectedBooking.pincode && `- ${selectedBooking.pincode}`}</span>
-                    </div>
-                    <div className="col-span-2 border-t border-slate-200/60 pt-2 mt-1">
-                      <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">District & State</span>
-                      <span className="text-slate-800 font-semibold text-[11px] block">{selectedBooking.locationDistrict}, {selectedBooking.locationState}</span>
+                  {/* TABLE */}
+                  <div className="bg-slate-900/20 border border-slate-900 rounded-2xl overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-slate-900 bg-slate-900/10 text-slate-500 font-bold uppercase tracking-wider text-[9px]">
+                            <th className="p-4">Shoot ID</th>
+                            <th className="p-4">Client / Service</th>
+                            <th className="p-4">Date / Preferred Time</th>
+                            <th className="p-4">Assigned Creator</th>
+                            <th className="p-4">Payment</th>
+                            <th className="p-4">Status</th>
+                            <th className="p-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-900/60">
+                          {filteredBookings.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="p-8 text-center text-slate-500 font-bold uppercase">
+                                No booking records matching search criteria.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredBookings.map(b => (
+                              <tr key={b.id} className="hover:bg-slate-900/10 transition-colors">
+                                <td className="p-4 font-mono font-bold text-indigo-400">{b.id}</td>
+                                <td className="p-4">
+                                  <div className="font-bold text-white uppercase">{b.name}</div>
+                                  <div className="text-[10px] text-slate-400">{b.service}</div>
+                                </td>
+                                <td className="p-4">
+                                  <div>{b.date}</div>
+                                  <div className="text-[10px] text-slate-500">{b.preferredTime || 'Anytime'}</div>
+                                </td>
+                                <td className="p-4">
+                                  <select
+                                    value={b.assignedTo}
+                                    onChange={(e) => handleAssignCrew(b.id, e.target.value)}
+                                    className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-[10px] text-slate-300 focus:outline-none cursor-pointer"
+                                  >
+                                    <option value="UNASSIGNED">-- Unassigned --</option>
+                                    {teamMembers.map(t => (
+                                      <option key={t.name} value={t.name}>
+                                        {t.name} ({getCrewStatusForDate(t.name, b.date, b.id)})
+                                      </option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="p-4">
+                                  <select
+                                    value={b.paymentStatus}
+                                    onChange={(e) => handleUpdatePaymentStatus(b.id, e.target.value)}
+                                    className={`bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-bold focus:outline-none cursor-pointer ${
+                                      b.paymentStatus === 'PAID' || b.paymentStatus === 'Success'
+                                        ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5'
+                                        : 'text-amber-400 border-amber-500/20 bg-amber-500/5'
+                                    }`}
+                                  >
+                                    <option value="Pending">Pending</option>
+                                    <option value="Success">Success</option>
+                                    <option value="Failed">Failed</option>
+                                    <option value="Refunded">Refunded</option>
+                                  </select>
+                                </td>
+                                <td className="p-4">
+                                  <select
+                                    value={b.status}
+                                    onChange={(e) => handleUpdateBookingStatus(b.id, e.target.value)}
+                                    className="bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[10px] text-slate-300 focus:outline-none cursor-pointer"
+                                  >
+                                    <option value="Pending">Pending</option>
+                                    <option value="Confirmed">Confirmed</option>
+                                    <option value="Completed">Completed</option>
+                                    <option value="Cancelled">Cancelled</option>
+                                  </select>
+                                </td>
+                                <td className="p-4 text-right">
+                                  <button
+                                    onClick={() => setSelectedBooking(b)}
+                                    className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-heading text-[8px] font-bold tracking-widest uppercase rounded cursor-pointer transition-all border-0"
+                                  >
+                                    View Details
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="grid grid-cols-3 gap-4 border-b border-slate-100 pb-4">
-                <div>
-                  <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-1">ASSIGNED DISPATCH</span>
-                  <span className="text-xs text-slate-800 font-heading font-black uppercase block mt-1">{selectedBooking.assignedTo}</span>
+              {/* TAB 3: FINANCES */}
+              {adminTab === 'FINANCES' && (
+                <div className="space-y-8 animate-fade-in">
+                  <div>
+                    <h2 className="font-heading text-lg font-black text-white uppercase tracking-wider">Financial telemetry Ledger</h2>
+                    <p className="text-xs text-slate-500 font-medium">Track total valuations, receivables, and completed dispatch earnings.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="bg-slate-900/20 border border-slate-900 rounded-2xl p-5 space-y-2">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">Gross Revenue Generated</span>
+                      <h3 className="font-heading text-2xl font-black text-emerald-400">₹{grossPaid.toLocaleString()}</h3>
+                      <p className="text-[10px] text-slate-500 font-medium">Completed and cleared payments.</p>
+                    </div>
+                    <div className="bg-slate-900/20 border border-slate-900 rounded-2xl p-5 space-y-2">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">Pending Receivables</span>
+                      <h3 className="font-heading text-2xl font-black text-amber-400">₹{pendingReceivables.toLocaleString()}</h3>
+                      <p className="text-[10px] text-slate-500 font-medium">Awaiting payment verification.</p>
+                    </div>
+                    <div className="bg-slate-900/20 border border-slate-900 rounded-2xl p-5 space-y-2">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">Total Valuation</span>
+                      <h3 className="font-heading text-2xl font-black text-white">₹{totalValuation.toLocaleString()}</h3>
+                      <p className="text-[10px] text-slate-500 font-medium">Projected gross portfolio value.</p>
+                    </div>
+                  </div>
+
+                  {/* FINANCIAL TABLE */}
+                  <div className="bg-slate-900/20 border border-slate-900 rounded-2xl p-6 space-y-6">
+                    <h3 className="font-heading text-xs font-bold text-slate-400 uppercase tracking-widest">Recent Cash Flow Inflow</h3>
+                    <div className="space-y-4">
+                      {bookings.filter(b => b.paymentStatus === 'PAID' || b.paymentStatus === 'Success').map(b => (
+                        <div key={b.id} className="flex justify-between items-center text-xs py-3.5 border-b border-slate-900/50">
+                          <div>
+                            <span className="font-mono text-[10px] text-indigo-400 font-bold mr-2">{b.id}</span>
+                            <span className="font-bold text-white uppercase">{b.name}</span>
+                            <span className="text-slate-500 text-[10px] ml-2">({b.service})</span>
+                          </div>
+                          <span className="font-heading font-black text-emerald-400">+₹{b.price.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-1">COMBINED BUDGET</span>
-                  <span className="text-xs font-bold text-slate-800 font-mono block mt-1">₹{selectedBooking.price.toLocaleString()}</span>
+              )}
+
+              {/* TAB 4: TEAM */}
+              {adminTab === 'TEAM' && (
+                <div className="space-y-6 animate-fade-in">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h2 className="font-heading text-lg font-black text-white uppercase tracking-wider">Active Creative Roster</h2>
+                      <p className="text-xs text-slate-500 font-medium">Manage photographers, editor dispatches, and availability logs.</p>
+                    </div>
+                    <button
+                      onClick={() => setShowAddCrewModal(true)}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-heading text-[10px] font-black tracking-widest uppercase rounded-xl transition-all cursor-pointer border-0 flex items-center gap-1.5"
+                    >
+                      <Plus size={14} /> Enroll Partner
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {teamMembers.map(t => (
+                      <div key={t.name} className="bg-slate-900/20 border border-slate-900 rounded-2xl p-5 space-y-4 relative group">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center font-heading text-lg font-black text-white">
+                            {t.name.slice(0,2).toUpperCase()}
+                          </div>
+                          <div>
+                            <h4 className="font-heading text-sm font-bold text-white uppercase">{t.name}</h4>
+                            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">{t.role}</p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 border-t border-slate-900/60 pt-4 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Specialty</span>
+                            <span className="text-slate-300 font-medium text-[11px]">{t.specialty}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Availability</span>
+                            <button
+                              onClick={() => handleToggleCrewAvailabilityAdmin(t.id!, t.availability)}
+                              className={`px-2 py-0.5 rounded text-[8px] font-bold tracking-widest uppercase cursor-pointer border-0 ${
+                                t.availability === 'AVAILABLE'
+                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                  : t.availability === 'ON SHOOT'
+                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                    : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                              }`}
+                            >
+                              {t.availability}
+                            </button>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Email</span>
+                            <span className="text-slate-400 font-mono text-[10px]">{t.email || 'N/A'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Active Shoots</span>
+                            <span className="text-white font-mono font-bold">{t.activeShoots}</span>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => handleDeleteCrew(t.id!, t.name)}
+                          className="absolute top-2 right-2 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity bg-transparent border-0 cursor-pointer p-2"
+                          title="Remove Partner"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-1">PAYMENT STATUS</span>
-                  <span className={`text-[10px] font-bold tracking-widest uppercase px-2 py-0.5 rounded-full inline-block border mt-0.5 ${
-                    selectedBooking.paymentStatus === 'PAID' 
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                      : 'bg-amber-50 text-amber-700 border-amber-200'
-                  }`}>
-                    {selectedBooking.paymentStatus}
-                  </span>
+              )}
+
+              {/* TAB 5: APPLICATIONS */}
+              {adminTab === 'APPLICATIONS' && (
+                <div className="space-y-6 animate-fade-in">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h2 className="font-heading text-lg font-black text-white uppercase tracking-wider">Hiring & Career Applications</h2>
+                      <p className="text-xs text-slate-500 font-medium">Process candidates and configure hiring gateway status.</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {applications.map(a => (
+                      <div key={a.id} className="bg-slate-900/20 border border-slate-900 rounded-2xl p-5 space-y-4 relative group">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-[9px] font-mono text-indigo-400 font-bold block mb-1">{a.id}</span>
+                            <h4 className="font-heading text-sm font-bold text-white uppercase">{a.name}</h4>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">{a.jobTitle}</p>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteApp(a.id)}
+                            className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity bg-transparent border-0 cursor-pointer p-2"
+                            title="Delete Application"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+
+                        <div className="space-y-2 border-t border-slate-900/60 pt-4 text-xs">
+                          <div className="text-slate-400 text-[11px] leading-relaxed italic bg-slate-950/20 p-3 rounded-lg border border-slate-900">
+                            "{a.message}"
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Email Address</span>
+                            <span className="text-slate-300 font-mono text-[10px]">{a.email}</span>
+                          </div>
+                          {a.portfolioUrl && (
+                            <div className="flex justify-between">
+                              <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Portfolio URL</span>
+                              <a href={a.portfolioUrl} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline flex items-center gap-1">
+                                View Portfolio <ExternalLink size={10} />
+                              </a>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="border-t border-slate-900/60 pt-4 flex justify-between items-center">
+                          <span className={`px-2.5 py-0.5 border text-[9px] font-bold tracking-widest uppercase rounded ${
+                            a.status === 'PENDING REVIEW' 
+                              ? 'border-amber-500/20 bg-amber-500/5 text-amber-400' 
+                              : a.status === 'APPROVED' 
+                                ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-400' 
+                                : 'border-red-500/20 bg-red-500/5 text-red-400'
+                          }`}>
+                            {a.status}
+                          </span>
+
+                          <div className="flex gap-2">
+                            {a.status === 'PENDING REVIEW' && (
+                              <>
+                                <button
+                                  onClick={() => handleTriggerHireModal(a.id)}
+                                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-heading text-[8px] font-bold tracking-widest rounded uppercase cursor-pointer transition-all border-0 shadow-sm shadow-emerald-600/10"
+                                >
+                                  Hire
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateAppStatus(a.id, 'REJECTED')}
+                                  className="px-2.5 py-1.5 bg-red-600 hover:bg-red-500 text-white font-heading text-[8px] font-bold tracking-widest rounded uppercase cursor-pointer transition-all border-0 shadow-sm shadow-red-600/10"
+                                >
+                                  Reject
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+              )}
+
+              {/* TAB 6: WEBSITE */}
+              {adminTab === 'WEBSITE' && (
+                <div className="space-y-8 animate-fade-in">
+                  <div>
+                    <h2 className="font-heading text-lg font-black text-white uppercase tracking-wider">Website Controls & Telemetry</h2>
+                    <p className="text-xs text-slate-500 font-medium">Configure package prices, homepage reels, and hiring switches.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* PRICING & HIRING */}
+                    <div className="lg:col-span-2 space-y-6">
+                      <div className="bg-slate-900/20 border border-slate-900 rounded-2xl p-6 space-y-6">
+                        <div className="flex justify-between items-center">
+                          <h3 className="font-heading text-xs font-bold text-slate-400 uppercase tracking-widest">Hiring Gateway Control</h3>
+                          <button
+                            onClick={handleToggleHiring}
+                            className={`px-4 py-2 font-heading text-[9px] font-black tracking-widest uppercase rounded-lg border transition-all cursor-pointer ${
+                              careerHiring
+                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-md shadow-emerald-500/5'
+                                : 'bg-red-500/10 text-red-400 border-red-500/20'
+                            }`}
+                          >
+                            {careerHiring ? 'Career Submissions Open' : 'Hiring Portal Closed'}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-900/20 border border-slate-900 rounded-2xl p-6 space-y-6">
+                        <h3 className="font-heading text-xs font-bold text-slate-400 uppercase tracking-widest">Shoot Package Pricing Ledger</h3>
+                        
+                        <div className="space-y-4">
+                          {Object.entries(editingPrices).map(([name, price]) => (
+                            <div key={name} className="flex justify-between items-center gap-4">
+                              <span className="text-xs text-slate-300 font-bold uppercase">{name}</span>
+                              <div className="relative w-32">
+                                <span className="absolute left-3 top-2.5 text-slate-600 text-xs">₹</span>
+                                <input
+                                  type="number"
+                                  value={price}
+                                  onChange={(e) => setEditingPrices({ ...editingPrices, [name]: Number(e.target.value) })}
+                                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-6 pr-3 py-2 text-xs font-mono font-bold text-white focus:outline-none focus:border-indigo-500"
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <button
+                          onClick={handleSavePrices}
+                          className="w-full mt-4 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-heading text-xs font-black tracking-widest uppercase cursor-pointer border-0 shadow-md shadow-indigo-600/10 transition-all"
+                        >
+                          Synchronize Service Pricing
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* HOMEPAGE REELS */}
+                    <div className="bg-slate-900/20 border border-slate-900 rounded-2xl p-6 space-y-6">
+                      <div className="flex justify-between items-center">
+                        <h3 className="font-heading text-xs font-bold text-slate-400 uppercase tracking-widest">Homepage Reels</h3>
+                        <button
+                          onClick={() => {
+                            setReelEditId(null)
+                            setNewReelTitle('')
+                            setNewReelUrl('')
+                            setShowReelModal(true)
+                          }}
+                          className="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-indigo-400 rounded-lg cursor-pointer transition-colors"
+                          title="Add Reel"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+
+                      <div className="space-y-4">
+                        {reels.map(r => (
+                          <div key={r.id} className="bg-slate-950/40 border border-slate-900 rounded-xl p-3 flex justify-between items-center gap-3">
+                            <div className="space-y-1">
+                              <h4 className="font-bold text-white uppercase text-[11px] leading-tight line-clamp-1">{r.title}</h4>
+                              <span className="text-[9px] text-slate-500 font-medium">Views: {r.views} | Likes: {r.likes}</span>
+                            </div>
+                            <div className="flex gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setReelEditId(r.id)
+                                  setNewReelTitle(r.title)
+                                  setNewReelUrl(r.videoUrl)
+                                  setShowReelModal(true)
+                                }}
+                                className="p-1.5 text-slate-500 hover:text-white bg-transparent border-0 cursor-pointer"
+                              >
+                                <Edit size={12} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteReel(r.id)}
+                                className="p-1.5 text-slate-500 hover:text-red-400 bg-transparent border-0 cursor-pointer"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 7: SYSTEM */}
+              {adminTab === 'SYSTEM' && (
+                <div className="space-y-8 animate-fade-in">
+                  <div>
+                    <h2 className="font-heading text-lg font-black text-white uppercase tracking-wider">System Settings & Database</h2>
+                    <p className="text-xs text-slate-500 font-medium">Manage database exports, import telemetry records, and reset tables.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* BACKUP OPTIONS */}
+                    <div className="bg-slate-900/20 border border-slate-900 rounded-2xl p-6 space-y-6">
+                      <h3 className="font-heading text-xs font-bold text-slate-400 uppercase tracking-widest">Database Backup Switches</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <button
+                          onClick={handleExportData}
+                          className="py-4 bg-slate-900 hover:bg-slate-800 text-white font-heading text-[10px] font-black tracking-widest uppercase rounded-xl border-0 cursor-pointer transition-all flex flex-col items-center justify-center gap-2"
+                        >
+                          <Download size={16} />
+                          Clipboard Backup
+                        </button>
+                        <button
+                          onClick={() => {
+                            setImportText('')
+                            setShowSyncModal(true)
+                          }}
+                          className="py-4 bg-slate-900 hover:bg-slate-800 text-white font-heading text-[10px] font-black tracking-widest uppercase rounded-xl border-0 cursor-pointer transition-all flex flex-col items-center justify-center gap-2"
+                        >
+                          <Upload size={16} />
+                          Synchronize DB
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* FACTORY RESET */}
+                    <div className="bg-slate-900/20 border border-slate-950 rounded-2xl p-6 space-y-6">
+                      <h3 className="font-heading text-xs font-bold text-red-500 uppercase tracking-widest">Danger Zone Controls</h3>
+                      <p className="text-[11px] text-slate-500 leading-relaxed uppercase font-semibold">
+                        This command wipes active booking entries and re-indexes all operational tables. Access details and team members remain.
+                      </p>
+                      <button
+                        onClick={handleResetDefaults}
+                        className="w-full py-3 bg-red-950/20 hover:bg-red-900 text-red-400 rounded-lg font-heading text-xs font-black tracking-widest uppercase cursor-pointer border-0 transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <Database size={12} />
+                        Factory Reset Database
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            </main>
+          </div>
+        </div>
+      )}
+
+      {/* FOOTER */}
+      <footer className="py-4 bg-slate-950 border-t border-slate-900/40 text-center text-[10px] text-slate-600 font-medium uppercase tracking-widest mt-auto z-10 select-none">
+        MR. CINEMATICSHOOT Operations Control Vault — Supabase Real-Time Backend
+      </footer>
+
+      {/* DISPATCH DETAIL MODAL */}
+      {selectedBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl px-4 select-none">
+          <div className="absolute inset-0 cursor-default" onClick={() => setSelectedBooking(null)} />
+          <div className="relative glass-neon w-full max-w-xl bg-slate-950 p-6 border border-slate-900 z-10 space-y-6 text-left rounded-2xl">
+            <div className="flex justify-between items-start pb-3 border-b border-slate-900">
+              <div>
+                <span className="font-mono text-[10px] text-indigo-400 font-bold block mb-1">{selectedBooking.id}</span>
+                <h3 className="font-heading text-md font-black text-white uppercase">{selectedBooking.name}</h3>
+              </div>
+              <button onClick={() => setSelectedBooking(null)} className="text-slate-500 hover:text-white bg-transparent border-0 cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-x-6 gap-y-4 text-xs">
+              <div className="space-y-1">
+                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Service Package</span>
+                <span className="font-semibold text-white uppercase">{selectedBooking.service}</span>
+              </div>
+              <div className="space-y-1">
+                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Target shoot Date</span>
+                <span className="font-semibold text-white">{selectedBooking.date}</span>
+              </div>
+              <div className="space-y-1">
+                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Contact details</span>
+                <span className="font-medium text-slate-300">{selectedBooking.email}</span>
+                <span className="block text-slate-400 font-mono text-[10px] mt-0.5">{selectedBooking.phoneNumber}</span>
+              </div>
+              <div className="space-y-1">
+                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Preferred Call Time</span>
+                <span className="font-semibold text-white">{selectedBooking.preferredTime || 'Anytime'}</span>
               </div>
 
-              <div>
-                <span className="font-bold text-[9px] text-slate-400 tracking-widest block mb-2">TELEMETRY & INSTRUCTIONS</span>
-                <p className="bg-slate-50 p-4 border border-slate-100 rounded-xl font-mono text-[11px] leading-relaxed select-text whitespace-pre-line text-slate-600">
-                  {selectedBooking.message}
+              <div className="col-span-2 space-y-1 border-t border-slate-900 pt-3">
+                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Shoot Location</span>
+                <p className="font-medium text-slate-300 leading-relaxed">
+                  {selectedBooking.locationVenue && `${selectedBooking.locationVenue}, `}
+                  {selectedBooking.locationArea && `${selectedBooking.locationArea}, `}
+                  {selectedBooking.locationDistrict && `${selectedBooking.locationDistrict}, `}
+                  {selectedBooking.locationState && `${selectedBooking.locationState}`}
+                  {selectedBooking.pincode && ` - ${selectedBooking.pincode}`}
                 </p>
               </div>
 
-              <div className="pt-4 border-t border-slate-100 flex gap-3">
-                <button
-                  onClick={() => setSelectedBooking(null)}
-                  className="w-full py-3 border border-slate-200 hover:bg-slate-50 text-slate-700 font-heading text-[10px] font-black tracking-widest uppercase transition-colors cursor-pointer bg-white rounded-lg"
-                >
-                  Dismiss Overlay
-                </button>
+              <div className="col-span-2 space-y-1 border-t border-slate-900 pt-3">
+                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Special Requirements / Message</span>
+                <p className="text-slate-400 italic font-medium leading-relaxed bg-slate-900/20 p-3.5 rounded-lg border border-slate-900">
+                  "{selectedBooking.message}"
+                </p>
               </div>
 
+              <div className="space-y-1 border-t border-slate-900 pt-3">
+                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Payment Share Rate</span>
+                <span className="font-heading font-black text-emerald-400">₹{selectedBooking.price.toLocaleString()}</span>
+                <span className="text-[9px] text-slate-500 block uppercase font-bold mt-0.5">Status: {selectedBooking.paymentStatus}</span>
+              </div>
+
+              <div className="space-y-1 border-t border-slate-900 pt-3">
+                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Assigned partner</span>
+                <span className="font-semibold text-white uppercase">{selectedBooking.assignedTo}</span>
+              </div>
             </div>
 
+            <div className="pt-2 border-t border-slate-900 flex justify-end gap-3">
+              <button
+                onClick={() => setSelectedBooking(null)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-heading text-[9px] font-black tracking-widest rounded-lg uppercase cursor-pointer border-0"
+              >
+                Close Dispatch
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* SYNCHRONIZER DATA MODAL */}
-      {showSyncModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
-          <div className="absolute inset-0 cursor-default" onClick={() => setShowSyncModal(false)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg p-8 border border-slate-100 z-10 animate-fade-in text-left">
-            <button
-              onClick={() => setShowSyncModal(false)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer bg-slate-50 hover:bg-slate-100 p-1.5 rounded-full"
-            >
-              <X size={16} />
-            </button>
-
-            <h3 className="font-heading text-lg font-black text-slate-900 tracking-wide uppercase mb-2 border-b border-slate-100 pb-3 flex items-center gap-2">
-              <Database size={18} className="text-indigo-600" />
-              Over-the-Air Database Sync
-            </h3>
-            
-            <p className="text-xs text-slate-500 font-medium leading-relaxed mb-4">
-              Paste the JSON payload exported from the main client website (or another portal port instance) below to sync the databases.
-            </p>
+      {/* REELS ADD / EDIT MODAL */}
+      {showReelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl px-4 select-none">
+          <div className="absolute inset-0 cursor-default" onClick={() => setShowReelModal(false)} />
+          <form onSubmit={handleSaveReel} className="relative glass-neon w-full max-w-md bg-slate-950 p-6 border border-slate-900 z-10 space-y-6 text-left rounded-2xl">
+            <div className="flex justify-between items-start pb-3 border-b border-slate-900">
+              <h3 className="font-heading text-sm font-black text-white uppercase">
+                {reelEditId !== null ? 'Edit Showcase Reel' : 'Add Showcase Reel'}
+              </h3>
+              <button onClick={() => setShowReelModal(false)} className="text-slate-500 hover:text-white bg-transparent border-0 cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
 
             <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Reel Title</label>
+                <input
+                  type="text"
+                  value={newReelTitle}
+                  onChange={(e) => setNewReelTitle(e.target.value)}
+                  placeholder="e.g. Vaporwave Neon Street Fashion"
+                  className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Video URL (.mp4)</label>
+                <input
+                  type="url"
+                  value={newReelUrl}
+                  onChange={(e) => setNewReelUrl(e.target.value)}
+                  placeholder="https://assets.mixkit.co/..."
+                  className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-900 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowReelModal(false)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-heading text-[9px] font-black tracking-widest rounded-lg uppercase cursor-pointer border-0"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-heading text-[9px] font-black tracking-widest rounded-lg uppercase cursor-pointer border-0"
+              >
+                Save Showcase Reel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ENROLL PARTNER MODAL */}
+      {showAddCrewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl px-4 select-none">
+          <div className="absolute inset-0 cursor-default" onClick={() => setShowAddCrewModal(false)} />
+          <form onSubmit={handleAddCrew} className="relative glass-neon w-full max-w-md bg-slate-950 p-6 border border-slate-900 z-10 space-y-6 text-left rounded-2xl">
+            <div className="flex justify-between items-start pb-3 border-b border-slate-900">
+              <h3 className="font-heading text-sm font-black text-white uppercase">Enroll Creative Partner</h3>
+              <button onClick={() => setShowAddCrewModal(false)} className="text-slate-500 hover:text-white bg-transparent border-0 cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Full Name</label>
+                  <input
+                    type="text"
+                    value={newCrewName}
+                    onChange={(e) => setNewCrewName(e.target.value)}
+                    placeholder="e.g. Marcus Bellingham"
+                    className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Specialty Role</label>
+                  <input
+                    type="text"
+                    value={newCrewRole}
+                    onChange={(e) => setNewCrewRole(e.target.value)}
+                    placeholder="e.g. Video Editor / Drone Op"
+                    className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Email Address</label>
+                  <input
+                    type="email"
+                    value={newCrewEmail}
+                    onChange={(e) => setNewCrewEmail(e.target.value)}
+                    placeholder="marcus@mrcinematic.com"
+                    className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Access Key (Password)</label>
+                  <input
+                    type="password"
+                    value={newCrewPassword}
+                    onChange={(e) => setNewCrewPassword(e.target.value)}
+                    placeholder="crew2026"
+                    className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Specific Specialty</label>
+                  <input
+                    type="text"
+                    value={newCrewSpecialty}
+                    onChange={(e) => setNewCrewSpecialty(e.target.value)}
+                    placeholder="e.g. RED Ranger & Cine Lenses"
+                    className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Hourly Rate (₹)</label>
+                  <input
+                    type="number"
+                    value={newCrewRate}
+                    onChange={(e) => setNewCrewRate(e.target.value)}
+                    placeholder="2000"
+                    className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-900 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowAddCrewModal(false)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-heading text-[9px] font-black tracking-widest rounded-lg uppercase cursor-pointer border-0"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-heading text-[9px] font-black tracking-widest rounded-lg uppercase cursor-pointer border-0"
+              >
+                Enroll Creative Partner
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* HIRE CREATOR MODAL */}
+      {showHireModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl px-4 select-none animate-fade-in">
+          <div className="absolute inset-0 cursor-default" onClick={() => setShowHireModal(false)} />
+          <form onSubmit={handleConfirmHire} className="relative glass-neon w-full max-w-md bg-slate-950 p-6 border border-slate-900 z-10 space-y-6 text-left rounded-2xl animate-reveal-up">
+            <div className="flex justify-between items-start pb-3 border-b border-slate-900">
+              <h3 className="font-heading text-sm font-black text-white uppercase">Confirm Hire & Generate Account</h3>
+              <button onClick={() => setShowHireModal(false)} className="text-slate-500 hover:text-white bg-transparent border-0 cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <p className="text-slate-400 leading-relaxed uppercase font-bold text-[9px] border-b border-slate-900 pb-2">
+                You are hiring {hireName}. Create their individual password to grant access to the Partner Portal.
+              </p>
+
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Email Address</label>
+                <input
+                  type="email"
+                  value={hireEmail}
+                  onChange={(e) => setHireEmail(e.target.value)}
+                  className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Access Key (Password) *</label>
+                <input
+                  type="password"
+                  value={hirePassword}
+                  onChange={(e) => setHirePassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Specialty Role</label>
+                  <input
+                    type="text"
+                    value={hireSpecialty}
+                    onChange={(e) => setHireSpecialty(e.target.value)}
+                    className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Hourly Rate (₹)</label>
+                  <input
+                    type="number"
+                    value={hireHourlyRate}
+                    onChange={(e) => setHireHourlyRate(e.target.value)}
+                    className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-900 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowHireModal(false)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-heading text-[9px] font-black tracking-widest rounded-lg uppercase cursor-pointer border-0"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-heading text-[9px] font-black tracking-widest rounded-lg uppercase cursor-pointer border-0 shadow-md shadow-emerald-600/10"
+              >
+                Confirm Hire & Setup Portal
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* SYNC DATABASE MODAL */}
+      {showSyncModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl px-4 select-none animate-fade-in">
+          <div className="absolute inset-0 cursor-default" onClick={() => setShowSyncModal(false)} />
+          <div className="relative glass-neon w-full max-w-lg bg-slate-950 p-6 border border-slate-900 z-10 space-y-6 text-left rounded-2xl animate-reveal-up">
+            <div className="flex justify-between items-start pb-3 border-b border-slate-900">
+              <h3 className="font-heading text-sm font-black text-white uppercase">Data Synchronization</h3>
+              <button onClick={() => setShowSyncModal(false)} className="text-slate-500 hover:text-white bg-transparent border-0 cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                Paste JSON data package from clipboard to synchronize database state.
+              </p>
               <textarea
                 value={importText}
                 onChange={(e) => setImportText(e.target.value)}
-                placeholder='Paste database payload JSON here... e.g. { "bookings": [...], "teamMembers": [...] }'
-                className="w-full h-48 border border-slate-200 rounded-xl p-4 font-mono text-[10px] bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600"
+                placeholder="Paste backup JSON..."
+                className="w-full h-40 bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                required
               />
+            </div>
 
-              <div className="flex gap-3">
-                <button
-                  onClick={handleImportData}
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-heading text-[10px] font-black tracking-widest uppercase transition-all rounded-lg shadow-sm cursor-pointer border-0"
-                >
-                  Synchronize Storage Database
-                </button>
-                <button
-                  onClick={() => setShowSyncModal(false)}
-                  className="w-full py-3 border border-slate-200 hover:bg-slate-50 text-slate-700 font-heading text-[10px] font-black tracking-widest uppercase transition-all cursor-pointer bg-white rounded-lg"
-                >
-                  Cancel
-                </button>
-              </div>
+            <div className="pt-4 border-t border-slate-900 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowSyncModal(false)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-heading text-[9px] font-black tracking-widest rounded-lg uppercase cursor-pointer border-0"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleImportData}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-heading text-[9px] font-black tracking-widest rounded-lg uppercase cursor-pointer border-0"
+              >
+                Synchronize Database
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Micro-footer */}
-      <footer className="py-8 bg-slate-900 border-t border-slate-800 text-center text-[10px] font-bold tracking-widest text-slate-500 uppercase mt-auto">
-        © {new Date().getFullYear()} MR. CINEMATICSHOOT. ADMINISTRATIVE ENGINE.
-      </footer>
-      <Toaster position="top-right" richColors />
     </div>
   )
 }
