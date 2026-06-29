@@ -1,5 +1,7 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState } from 'react'
 import { Play, Pause, Heart, Eye } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { reelsListAll } from '../../server/auth.functions'
 
 interface ReelItem {
   id: number
@@ -41,23 +43,10 @@ const DEFAULT_REELS: ReelItem[] = [
 ]
 
 export default function Reels() {
-  const [reels, setReels] = useState<ReelItem[]>(DEFAULT_REELS)
-
-  useEffect(() => {
-    const syncReels = () => {
-      const stored = localStorage.getItem('mcs_global_reels')
-      if (stored) {
-        try {
-          setReels(JSON.parse(stored))
-        } catch (e) {}
-      } else {
-        localStorage.setItem('mcs_global_reels', JSON.stringify(DEFAULT_REELS))
-      }
-    }
-    syncReels()
-    window.addEventListener('storage', syncReels)
-    return () => window.removeEventListener('storage', syncReels)
-  }, [])
+  const { data: reels = DEFAULT_REELS } = useQuery({
+    queryKey: ['reels', 'all'],
+    queryFn: () => reelsListAll()
+  })
 
   return (
     <section id="reels" className="relative z-10 py-20 md:py-32 bg-black border-b border-white/5 reveal-on-scroll">

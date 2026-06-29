@@ -1,8 +1,11 @@
+import { useEffect } from 'react'
 import { HeadContent, Scripts, createRootRouteWithContext, Outlet } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import * as Sentry from '@sentry/react'
 import appCss from '../styles.css?url'
+import { supabase } from '../utils/supabase'
+import { authSyncSession, authClearSession } from '../server/auth.functions'
 
 if (typeof window !== 'undefined' && import.meta.env.VITE_SENTRY_DSN) {
   Sentry.init({
@@ -87,6 +90,26 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 
 function RootDocument() {
   const { queryClient } = Route.useRouteContext()
+  useEffect(() => {
+    // Sync client-side session to server-side cookies
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session) {
+        await authSyncSession({
+          data: {
+            sessionToken: session.access_token,
+            email: session.user.email!,
+            name: session.user.user_metadata?.name || session.user.email!.split('@')[0],
+            userId: session.user.id
+          }
+        })
+      } else {
+        await authClearSession()
+      }
+      // Invalidate queries to reload session state across components
+      queryClient.invalidateQueries({ queryKey: ['auth'] })
+    })
+    return () => subscription.unsubscribe()
+  }, [queryClient])
 
   return (
     <QueryClientProvider client={queryClient}>
