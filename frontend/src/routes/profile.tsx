@@ -514,15 +514,6 @@ function SingleColumnLightProfileDashboard({ user }: { user: UserProfile }) {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-3">
-                    {/* Pay Button */}
-                    {b.paymentStatus === 'Pending' && b.bookingStatus !== 'Cancelled' && (
-                      <button
-                        onClick={() => checkoutMutation.mutate({ bookingId: b.bookingId, amount: b.price || 5000, paymentMethod: 'UPI / Cards' })}
-                        className="px-3.5 py-2 bg-[#FF8A00] hover:bg-[#ff9a20] text-black text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors border-0 cursor-pointer shadow-md shadow-[#FF8A00]/10"
-                      >
-                        Pay Now
-                      </button>
-                    )}
 
                     {/* Reschedule Button */}
                     {b.bookingStatus !== 'Cancelled' && b.bookingStatus !== 'Completed' && (
