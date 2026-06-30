@@ -13,8 +13,8 @@ import {
 import { createClient } from '@supabase/supabase-js'
 
 // Initialize client-side Supabase client using anon key
-const supabaseUrl = 'https://ahvhbuincvxhewxdkekr.supabase.co'
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFodmhidWluY3Z4aGV3eGRrZWtyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3MzA3NTksImV4cCI6MjA5NjMwNjc1OX0.FivI4jEYzjg0XRgIfAJ1udeEsoxWsTNSev7cUJ8fgLM'
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ahvhbuincvxhewxdkekr.supabase.co'
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFodmhidWluY3Z4aGV3eGRrZWtyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3MzA3NTksImV4cCI6MjA5NjMwNjc1OX0.FivI4jEYzjg0XRgIfAJ1udeEsoxWsTNSev7cUJ8fgLM'
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 // Helper to generate UUIDs
