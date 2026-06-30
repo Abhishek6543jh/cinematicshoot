@@ -55,6 +55,7 @@ KV, D1, R2, and Durable Object bindings are configured in `wrangler.jsonc` — s
 
 ## Routing
 
+
 This project uses [TanStack Router](https://tanstack.com/router) with file-based routing. Routes are managed as files in `src/routes`.
 
 ### Adding A Route
