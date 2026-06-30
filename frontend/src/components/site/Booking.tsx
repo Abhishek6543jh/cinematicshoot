@@ -160,15 +160,29 @@ export default function Booking() {
     onSuccess: (newBooking) => {
       queryClient.invalidateQueries({ queryKey: ['auth'] })
       
-      const selectedPkg = activePackages.find(p => p.packageName === formData.service)
-      const amount = selectedPkg ? selectedPkg.price : 2000
-      
-      // Initiate Payment flow
-      initiatePaymentMutation.mutate({
-        bookingId: newBooking.bookingId,
-        amount,
-        paymentMethod: 'UPI / Cards'
+      // Notify customer that the enquiry has been received and WhatsApp is the next step
+      toast.success('ENQUIRY RECEIVED: Shoot request saved successfully!', {
+        description: `Your Booking ID: ${newBooking.bookingId}. We will contact you via WhatsApp to finalize details.`,
+        duration: 8000
       })
+
+      // Reset form
+      setFormData({
+        name: user?.name || '',
+        phoneCode: '+91',
+        phoneNumber: user?.phone ? user.phone.replace('+91', '').trim() : '',
+        email: user?.email || '',
+        service: activePackages[0]?.packageName || '',
+        eventDetails: '',
+        state: '',
+        district: '',
+        area: '',
+        pincode: '',
+        location: '',
+        date: '',
+        preferredTime: 'Anytime',
+      })
+      setTurnstileVerified(false)
     },
     onError: (err: any) => {
       toast.error(`BOOKING FAILED: ${err.message || 'Error occurred while saving enquiry.'}`)

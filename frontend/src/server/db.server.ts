@@ -277,6 +277,7 @@ export const dbService = {
         user_id: userId,
         specialty: profile.bio || 'Visual Creator',
         bio: profile.bio || '',
+        address: profile.address || '',
         availability: profile.availability || 'AVAILABLE',
         hourly_rate: profile.hourlyRate || 0,
         rating: profile.rating || 5.0

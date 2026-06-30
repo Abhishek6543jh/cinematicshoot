@@ -185,7 +185,7 @@ export const bookingCreate = createServerFn({ method: 'POST' })
       bookingId,
       userId: user.email,
       customerName: data.customerName,
-      email: data.email,
+      email: user.email,
       phone: data.phone,
       photographyCategory: data.photographyCategory,
       selectedPackage: data.selectedPackage,

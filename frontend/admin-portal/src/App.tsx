@@ -3,7 +3,8 @@ import {
   Lock, LogOut, Calendar, DollarSign, Users, 
   Clock, ExternalLink, Search, 
   Check, Activity, FileText, Trash2,
-  Database, Upload, Download, X, Plus, Globe, Edit
+  Database, Upload, Download, X, Plus, Globe, Edit,
+  MessageCircle, Phone, RefreshCw, ChevronDown, Eye, TrendingUp
 } from 'lucide-react'
 import { Toaster, toast } from 'sonner'
 import {
@@ -67,6 +68,7 @@ interface TeamMember {
   specialty: string
   activeShoots: number
   availability: 'AVAILABLE' | 'ON SHOOT' | 'LEAVE'
+  share?: number
 }
 
 interface ReelItem {
@@ -99,6 +101,7 @@ export default function App() {
   const [careerHiring, setCareerHiring] = useState(true)
   const [servicePrices, setServicePrices] = useState<Record<string, number>>({})
   const [reels, setReels] = useState<ReelItem[]>([])
+  const [payments, setPayments] = useState<{ id: string; bookingId: string; amount: number; method: string; status: string; transactionId: string; paidAt: string; createdAt: string }[]>([])
   
   // website config forms
   const [editingPrices, setEditingPrices] = useState<Record<string, number>>({})
@@ -116,7 +119,7 @@ export default function App() {
   const [newCrewPassword, setNewCrewPassword] = useState('')
   const [newCrewRole, setNewCrewRole] = useState('')
   const [newCrewSpecialty, setNewCrewSpecialty] = useState('')
-  const [newCrewRate, setNewCrewRate] = useState('2000')
+  const [newCrewRate, setNewCrewRate] = useState('70')
 
   // Hire Creator modal state
   const [showHireModal, setShowHireModal] = useState(false)
@@ -125,7 +128,7 @@ export default function App() {
   const [hireEmail, setHireEmail] = useState('')
   const [hirePassword, setHirePassword] = useState('')
   const [hireSpecialty, setHireSpecialty] = useState('')
-  const [hireHourlyRate, setHireHourlyRate] = useState('2000')
+  const [hireHourlyRate, setHireHourlyRate] = useState('70')
   
   // Selected Booking modal state
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
@@ -134,6 +137,18 @@ export default function App() {
   const [bookingSearch, setBookingSearch] = useState('')
   const [bookingFilterStatus, setBookingFilterStatus] = useState('ALL')
   const [bookingFilterService, setBookingFilterService] = useState('ALL')
+  const [bookingFilterCrew, setBookingFilterCrew] = useState('ALL')
+
+  // Edit Crew modal state
+  const [showEditCrewModal, setShowEditCrewModal] = useState(false)
+  const [editCrewId, setEditCrewId] = useState('')
+  const [editCrewName, setEditCrewName] = useState('')
+  const [editCrewEmail, setEditCrewEmail] = useState('')
+  const [editCrewPassword, setEditCrewPassword] = useState('')
+  const [editCrewRole, setEditCrewRole] = useState('')
+  const [editCrewSpecialty, setEditCrewSpecialty] = useState('')
+  const [editCrewRate, setEditCrewRate] = useState('70')
+  const [editCrewAvailability, setEditCrewAvailability] = useState<'AVAILABLE' | 'ON SHOOT' | 'LEAVE'>('AVAILABLE')
   
   // Database sync modal
   const [showSyncModal, setShowSyncModal] = useState(false)
@@ -201,7 +216,8 @@ export default function App() {
             role: profile.specialty || 'Visual Creator',
             specialty: profile.specialty || 'Visual Creator',
             activeShoots: count || 0,
-            availability: profile.availability || 'AVAILABLE'
+            availability: profile.availability || 'AVAILABLE',
+            share: Number(profile.hourly_rate || 40)
           }
         }))
         setTeamMembers(mappedCreators)
@@ -258,6 +274,24 @@ export default function App() {
         .order('id', { ascending: true })
       if (reelsData) {
         setReels(reelsData)
+      }
+
+      // 6. Fetch payments
+      const { data: paymentsData } = await supabase
+        .from('payments')
+        .select('*')
+        .order('created_at', { ascending: false })
+      if (paymentsData) {
+        setPayments(paymentsData.map((p: any) => ({
+          id: p.id,
+          bookingId: p.booking_id,
+          amount: Number(p.amount),
+          method: p.payment_method || 'N/A',
+          status: p.payment_status || 'Pending',
+          transactionId: p.transaction_id || '',
+          paidAt: p.paid_at || '',
+          createdAt: p.created_at
+        })))
       }
     } catch (err: any) {
       console.error('Database load error:', err)
@@ -385,7 +419,7 @@ export default function App() {
       setNewCrewPassword('')
       setNewCrewRole('')
       setNewCrewSpecialty('')
-      setNewCrewRate('2000')
+      setNewCrewRate('70')
       setShowAddCrewModal(false)
       loadDatabase()
     } catch (err: any) {
@@ -405,6 +439,45 @@ export default function App() {
       loadDatabase()
     } catch (err: any) {
       toast.error(`Roster removal failed: ${err.message}`)
+    }
+  }
+
+  const handleEditCrew = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editCrewId || !editCrewName || !editCrewRole || !editCrewEmail) {
+      toast.error('Please enter name, email, and role.')
+      return
+    }
+    try {
+      const userUpdate: any = {
+        name: editCrewName,
+        email: editCrewEmail.toLowerCase()
+      }
+      if (editCrewPassword.trim()) {
+        userUpdate.password = editCrewPassword.trim()
+      }
+
+      const { error: userError } = await supabase
+        .from('users')
+        .update(userUpdate)
+        .eq('id', editCrewId)
+      if (userError) throw userError
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          specialty: editCrewSpecialty || editCrewRole,
+          availability: editCrewAvailability,
+          hourly_rate: Number(editCrewRate)
+        })
+        .eq('user_id', editCrewId)
+      if (profileError) throw profileError
+
+      toast.success(`${editCrewName} updated successfully.`)
+      setShowEditCrewModal(false)
+      loadDatabase()
+    } catch (err: any) {
+      toast.error(`Update failed: ${err.message}`)
     }
   }
 
@@ -551,7 +624,7 @@ export default function App() {
     setHireEmail(app.email)
     setHireSpecialty(app.jobTitle)
     setHirePassword('crew2026') // default passcode
-    setHireHourlyRate('2000')
+    setHireHourlyRate('70')
     setShowHireModal(true)
   }
 
@@ -752,6 +825,37 @@ export default function App() {
   const pendingReceivables = bookings.filter(b => b.paymentStatus === 'PENDING' || b.paymentStatus === 'Pending').reduce((sum, b) => sum + b.price, 0)
   const totalValuation = grossPaid + pendingReceivables
 
+  // Calculate Studio (30% default) vs Crew (70% default) Share details
+  let totalCrewPaid = 0
+  let totalStudioPaid = 0
+  let totalCrewPending = 0
+  let totalStudioPending = 0
+
+  bookings.forEach(b => {
+    const isPaid = b.paymentStatus === 'PAID' || b.paymentStatus === 'Success'
+    const assignedCrew = teamMembers.find(t => t.name === b.assignedTo)
+    const rawShare = assignedCrew?.share ?? 70
+    const crewSharePct = rawShare > 100 ? 70 : rawShare
+    
+    if (b.assignedTo === 'UNASSIGNED') {
+      if (isPaid) {
+        totalStudioPaid += b.price
+      } else {
+        totalStudioPending += b.price
+      }
+    } else {
+      const crewPart = b.price * (crewSharePct / 100)
+      const studioPart = b.price * ((100 - crewSharePct) / 100)
+      if (isPaid) {
+        totalCrewPaid += crewPart
+        totalStudioPaid += studioPart
+      } else {
+        totalCrewPending += crewPart
+        totalStudioPending += studioPart
+      }
+    }
+  })
+
   const chartData = (() => {
     const monthly: Record<string, { paid: number; pending: number; count: number }> = {}
     bookings.forEach(b => {
@@ -781,13 +885,20 @@ export default function App() {
     const matchSearch = b.name.toLowerCase().includes(bookingSearch.toLowerCase()) || b.id.toLowerCase().includes(bookingSearch.toLowerCase())
     const matchStatus = bookingFilterStatus === 'ALL' || b.status === bookingFilterStatus
     const matchService = bookingFilterService === 'ALL' || b.service === bookingFilterService
-    return matchSearch && matchStatus && matchService
+    const matchCrew = bookingFilterCrew === 'ALL'
+      ? true
+      : bookingFilterCrew === 'UNASSIGNED'
+        ? b.assignedTo === 'UNASSIGNED'
+        : b.assignedTo.toLowerCase() === bookingFilterCrew.toLowerCase()
+    return matchSearch && matchStatus && matchService && matchCrew
   })
 
   // Partner specific dispatches
   const myBookings = bookings.filter(b => b.assignedTo.toLowerCase() === activeCrewName.toLowerCase())
   const todayStr = new Date().toISOString().split('T')[0]
-  const myEarnings = myBookings.filter(b => b.paymentStatus === 'PAID' || b.paymentStatus === 'Success').reduce((sum, b) => sum + (b.price * 0.4), 0) // 40% dispatch share
+  const activeCrewMember = teamMembers.find(t => t.name.toLowerCase() === activeCrewName.toLowerCase())
+  const activeSharePct = (activeCrewMember?.share ?? 40) / 100
+  const myEarnings = myBookings.filter(b => b.paymentStatus === 'PAID' || b.paymentStatus === 'Success').reduce((sum, b) => sum + (b.price * activeSharePct), 0)
 
   return (
     <div className="min-h-screen flex flex-col font-sans select-none antialiased">
@@ -978,7 +1089,7 @@ export default function App() {
                   </div>
 
                   <div className="border-t border-slate-900 pt-4 space-y-3">
-                    <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Financial Telemetry</h4>
+                    <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Financial Telemetry ({activeSharePct * 100}% Share)</h4>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="bg-slate-950/40 p-3 border border-slate-900 rounded-xl text-center">
                         <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest mb-1">Paid Earnings</span>
@@ -986,7 +1097,7 @@ export default function App() {
                       </div>
                       <div className="bg-slate-950/40 p-3 border border-slate-900 rounded-xl text-center">
                         <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest mb-1">Pending Invoices</span>
-                        <span className="font-heading text-sm font-black text-slate-400">₹{(myBookings.filter(b => b.paymentStatus !== 'PAID' && b.paymentStatus !== 'Success').reduce((sum, b) => sum + b.price, 0) * 0.4).toLocaleString()}</span>
+                        <span className="font-heading text-sm font-black text-slate-400">₹{(myBookings.filter(b => b.paymentStatus !== 'PAID' && b.paymentStatus !== 'Success').reduce((sum, b) => sum + b.price, 0) * activeSharePct).toLocaleString()}</span>
                       </div>
                     </div>
                   </div>
@@ -1055,13 +1166,16 @@ export default function App() {
                     </div>
                   ) : (
                     myBookings.filter(b => b.status === 'Completed').map(b => (
-                      <div key={b.id} className="flex justify-between items-center text-xs py-3 border-b border-slate-900/50">
+                      <div key={b.id} className="flex justify-between items-center text-xs py-3 border-b border-slate-900/50 hover:bg-slate-900/10 px-2 rounded transition-colors">
                         <div>
-                          <span className="font-mono text-[10px] text-slate-500 mr-2 font-bold">{b.id}</span>
+                          <span className="font-mono text-[10px] text-slate-500 mr-2 font-bold">{b.id.slice(0, 8)}</span>
                           <span className="font-bold text-white uppercase">{b.name}</span>
                           <span className="text-slate-500 text-[10px] ml-2">({b.service})</span>
                         </div>
-                        <span className="text-slate-400 font-medium">{b.date}</span>
+                        <div className="text-right">
+                          <span className="font-heading font-black text-emerald-400 block">+₹{(b.price * activeSharePct).toLocaleString()}</span>
+                          <span className="text-[9px] text-slate-500 font-medium">{b.date} · {b.paymentStatus === 'PAID' || b.paymentStatus === 'Success' ? 'PAID' : 'PENDING'}</span>
+                        </div>
                       </div>
                     ))
                   )}
@@ -1081,7 +1195,7 @@ export default function App() {
               <h2 className="font-heading text-sm font-black tracking-[0.2em] text-white uppercase">
                 ADMIN CONTROL DECK
               </h2>
-              <span className="px-2.5 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[8px] font-bold rounded-full tracking-wider uppercase">
+              <span className="px-2.5 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[8px] font-bold rounded-full tracking-wider uppercase badge-pulse">
                 Supabase Connected
               </span>
             </div>
@@ -1143,25 +1257,41 @@ export default function App() {
                 <div className="space-y-8 animate-fade-in">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
-                      <h2 className="font-heading text-lg font-black text-white uppercase tracking-wider">Operational Overview</h2>
-                      <p className="text-xs text-slate-500 font-medium">Live metrics synced to Supabase database.</p>
+                      <h2 className="font-heading text-lg font-black text-white uppercase tracking-wider">
+                        {new Date().getHours() < 12 ? 'Good Morning' : new Date().getHours() < 17 ? 'Good Afternoon' : 'Good Evening'}, Admin
+                      </h2>
+                      <p className="text-xs text-slate-500 font-medium flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full dot-pulse inline-block" />
+                        Live — {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => loadDatabase()} className="px-3 py-2 glass-card rounded-lg text-[9px] font-bold uppercase tracking-wider text-slate-300 hover:text-white cursor-pointer border-0 flex items-center gap-1.5 transition-all">
+                        <RefreshCw size={11} /> Refresh
+                      </button>
+                      <button onClick={() => setShowAddCrewModal(true)} className="px-3 py-2 glass-card rounded-lg text-[9px] font-bold uppercase tracking-wider text-indigo-400 hover:text-white cursor-pointer border-0 flex items-center gap-1.5 transition-all">
+                        <Plus size={11} /> Add Crew
+                      </button>
+                      <button onClick={() => setAdminTab('BOOKINGS')} className="px-3 py-2 glass-card rounded-lg text-[9px] font-bold uppercase tracking-wider text-emerald-400 hover:text-white cursor-pointer border-0 flex items-center gap-1.5 transition-all">
+                        <Eye size={11} /> View Bookings
+                      </button>
                     </div>
                   </div>
 
                   {/* STATS CARDS */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     {[
-                      { label: 'Total Bookings', value: bookings.length, sub: 'Inquiries & confirmed', icon: Calendar, color: 'text-indigo-400' },
-                      { label: 'Gross Revenue', value: `₹${grossPaid.toLocaleString()}`, sub: 'Paid invoices', icon: DollarSign, color: 'text-emerald-400' },
-                      { label: 'Receivables', value: `₹${pendingReceivables.toLocaleString()}`, sub: 'Pending payments', icon: Clock, color: 'text-amber-400' },
-                      { label: 'Roster Size', value: teamMembers.length, sub: 'Active creative partners', icon: Users, color: 'text-violet-400' },
+                      { label: 'Total Bookings', value: bookings.length, sub: `${bookings.filter(b => b.status === 'Pending').length} pending`, icon: Calendar, color: 'text-indigo-400' },
+                      { label: 'Gross Revenue', value: `₹${grossPaid.toLocaleString()}`, sub: `Receivables: ₹${pendingReceivables.toLocaleString()}`, icon: DollarSign, color: 'text-emerald-400' },
+                      { label: 'Studio Share (30%)', value: `₹${totalStudioPaid.toLocaleString()}`, sub: `Pending: ₹${totalStudioPending.toLocaleString()}`, icon: TrendingUp, color: 'text-amber-400' },
+                      { label: 'Crew Share (70%)', value: `₹${totalCrewPaid.toLocaleString()}`, sub: `Pending: ₹${totalCrewPending.toLocaleString()}`, icon: Users, color: 'text-violet-400' },
                     ].map((card, i) => {
                       const Icon = card.icon
                       return (
-                        <div key={i} className="bg-slate-900/20 border border-slate-900 rounded-2xl p-5 space-y-4">
+                        <div key={i} className="glass-card stat-glow rounded-2xl p-5 space-y-4 transition-all">
                           <div className="flex justify-between items-start">
                             <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{card.label}</span>
-                            <div className={`p-2 rounded-xl bg-slate-900 border border-slate-800 ${card.color}`}>
+                            <div className={`p-2 rounded-xl bg-slate-900/60 border border-slate-800 ${card.color}`}>
                               <Icon size={14} />
                             </div>
                           </div>
@@ -1174,9 +1304,28 @@ export default function App() {
                     })}
                   </div>
 
+                  {/* STATUS BREAKDOWN */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    {[
+                      { label: 'Pending', count: bookings.filter(b => b.status === 'Pending').length, color: 'bg-amber-500' },
+                      { label: 'Confirmed', count: bookings.filter(b => b.status === 'Confirmed').length, color: 'bg-indigo-500' },
+                      { label: 'In Progress', count: bookings.filter(b => b.status === 'In Progress').length, color: 'bg-cyan-500' },
+                      { label: 'Completed', count: bookings.filter(b => b.status === 'Completed').length, color: 'bg-emerald-500' },
+                      { label: 'Cancelled', count: bookings.filter(b => b.status === 'Cancelled').length, color: 'bg-red-500' },
+                    ].map(s => (
+                      <div key={s.label} className="glass-card rounded-xl p-3 flex items-center gap-3">
+                        <div className={`w-2 h-8 rounded-full ${s.color}`} />
+                        <div>
+                          <span className="font-heading text-lg font-black text-white block leading-none">{s.count}</span>
+                          <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">{s.label}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
                   {/* FINANCIAL CHARTS */}
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    <div className="lg:col-span-2 bg-slate-900/20 border border-slate-900 rounded-2xl p-6 space-y-6">
+                    <div className="lg:col-span-2 glass-card rounded-2xl p-6 space-y-6">
                       <h3 className="font-heading text-xs font-bold text-slate-400 uppercase tracking-widest">Monthly Financial Inflow</h3>
                       <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
@@ -1192,24 +1341,32 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="bg-slate-900/20 border border-slate-900 rounded-2xl p-6 space-y-6">
-                      <h3 className="font-heading text-xs font-bold text-slate-400 uppercase tracking-widest">Today's Shoots</h3>
-                      <div className="space-y-4">
-                        {bookings.filter(b => b.date === todayStr && b.status === 'Confirmed').length === 0 ? (
-                          <div className="p-8 text-center text-xs text-slate-500 font-bold border border-dashed border-slate-900 rounded-xl uppercase">
-                            No production dispatches scheduled for today.
-                          </div>
-                        ) : (
-                          bookings.filter(b => b.date === todayStr && b.status === 'Confirmed').map(b => (
-                            <div key={b.id} className="p-3 bg-slate-950/40 border border-slate-900 rounded-xl space-y-1">
-                              <div className="flex justify-between items-center">
-                                <span className="font-mono text-[9px] text-indigo-400 font-bold">{b.id}</span>
-                                <span className="text-[9px] font-bold text-slate-400">{b.assignedTo}</span>
-                              </div>
-                              <h4 className="font-bold text-white uppercase text-xs">{b.name}</h4>
-                              <p className="text-[10px] text-slate-500">{b.locationVenue}</p>
+                    <div className="glass-card rounded-2xl p-6 space-y-4">
+                      <h3 className="font-heading text-xs font-bold text-slate-400 uppercase tracking-widest">Recent Bookings</h3>
+                      <div className="space-y-3">
+                        {bookings.slice(0, 5).map(b => (
+                          <div
+                            key={b.id}
+                            onClick={() => setSelectedBooking(b)}
+                            className="p-3 bg-slate-950/40 border border-slate-800 rounded-xl space-y-1 cursor-pointer hover:border-indigo-500/30 transition-colors"
+                          >
+                            <div className="flex justify-between items-center">
+                              <span className="font-mono text-[9px] text-indigo-400 font-bold">{b.id.slice(0, 8)}</span>
+                              <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full ${
+                                b.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400' :
+                                b.status === 'Confirmed' ? 'bg-indigo-500/10 text-indigo-400' :
+                                b.status === 'Cancelled' ? 'bg-red-500/10 text-red-400' :
+                                'bg-amber-500/10 text-amber-400'
+                              }`}>{b.status}</span>
                             </div>
-                          ))
+                            <h4 className="font-bold text-white text-xs truncate">{b.name}</h4>
+                            <p className="text-[10px] text-slate-500">{b.service} · {b.date}</p>
+                          </div>
+                        ))}
+                        {bookings.length === 0 && (
+                          <div className="p-6 text-center text-xs text-slate-500 font-bold border border-dashed border-slate-800 rounded-xl uppercase">
+                            No bookings yet
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1261,6 +1418,18 @@ export default function App() {
                           <option key={svc} value={svc}>{svc}</option>
                         ))}
                       </select>
+
+                      <select
+                        value={bookingFilterCrew}
+                        onChange={(e) => setBookingFilterCrew(e.target.value)}
+                        className="flex-1 md:flex-none bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none"
+                      >
+                        <option value="ALL">All Crew Members</option>
+                        <option value="UNASSIGNED">Unassigned Only</option>
+                        {teamMembers.map(t => (
+                          <option key={t.name} value={t.name}>{t.name}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
 
@@ -1299,18 +1468,32 @@ export default function App() {
                                   <div className="text-[10px] text-slate-500">{b.preferredTime || 'Anytime'}</div>
                                 </td>
                                 <td className="p-4">
-                                  <select
-                                    value={b.assignedTo}
-                                    onChange={(e) => handleAssignCrew(b.id, e.target.value)}
-                                    className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-[10px] text-slate-300 focus:outline-none cursor-pointer"
-                                  >
-                                    <option value="UNASSIGNED">-- Unassigned --</option>
-                                    {teamMembers.map(t => (
-                                      <option key={t.name} value={t.name}>
-                                        {t.name} ({getCrewStatusForDate(t.name, b.date, b.id)})
-                                      </option>
-                                    ))}
-                                  </select>
+                                  <div className="space-y-1.5 min-w-[150px]">
+                                    <select
+                                      value={b.assignedTo}
+                                      onChange={(e) => handleAssignCrew(b.id, e.target.value)}
+                                      className={`w-full bg-slate-950 border rounded px-2.5 py-1.5 text-[10px] font-bold focus:outline-none cursor-pointer transition-colors ${
+                                        b.assignedTo === 'UNASSIGNED'
+                                          ? 'text-slate-400 border-slate-800 hover:border-slate-700'
+                                          : 'text-indigo-400 border-indigo-500/20 bg-indigo-500/5'
+                                      }`}
+                                    >
+                                      <option value="UNASSIGNED">-- Unassigned --</option>
+                                      {teamMembers.map(t => (
+                                        <option key={t.name} value={t.name}>
+                                          {t.name} ({getCrewStatusForDate(t.name, b.date, b.id)})
+                                        </option>
+                                      ))}
+                                    </select>
+                                    {b.assignedTo !== 'UNASSIGNED' && (
+                                      <div className="flex items-center gap-1.5 px-1">
+                                        <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full dot-pulse" />
+                                        <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
+                                          {teamMembers.find(t => t.name === b.assignedTo)?.role || 'Creative Partner'}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="p-4">
                                   <select
@@ -1362,42 +1545,91 @@ export default function App() {
               {adminTab === 'FINANCES' && (
                 <div className="space-y-8 animate-fade-in">
                   <div>
-                    <h2 className="font-heading text-lg font-black text-white uppercase tracking-wider">Financial telemetry Ledger</h2>
-                    <p className="text-xs text-slate-500 font-medium">Track total valuations, receivables, and completed dispatch earnings.</p>
+                    <h2 className="font-heading text-lg font-black text-white uppercase tracking-wider">Financial Ledger</h2>
+                    <p className="text-xs text-slate-500 font-medium">Revenue, receivables, and payment records from Supabase.</p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-slate-900/20 border border-slate-900 rounded-2xl p-5 space-y-2">
-                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">Gross Revenue Generated</span>
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+                    <div className="glass-card stat-glow rounded-2xl p-5 space-y-2 transition-all">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">Gross Revenue</span>
                       <h3 className="font-heading text-2xl font-black text-emerald-400">₹{grossPaid.toLocaleString()}</h3>
-                      <p className="text-[10px] text-slate-500 font-medium">Completed and cleared payments.</p>
+                      <p className="text-[10px] text-slate-500 font-medium">Cleared payments</p>
                     </div>
-                    <div className="bg-slate-900/20 border border-slate-900 rounded-2xl p-5 space-y-2">
-                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">Pending Receivables</span>
+                    <div className="glass-card stat-glow rounded-2xl p-5 space-y-2 transition-all">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">Receivables</span>
                       <h3 className="font-heading text-2xl font-black text-amber-400">₹{pendingReceivables.toLocaleString()}</h3>
-                      <p className="text-[10px] text-slate-500 font-medium">Awaiting payment verification.</p>
+                      <p className="text-[10px] text-slate-500 font-medium">Awaiting payment</p>
                     </div>
-                    <div className="bg-slate-900/20 border border-slate-900 rounded-2xl p-5 space-y-2">
+                    <div className="glass-card stat-glow rounded-2xl p-5 space-y-2 transition-all">
                       <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">Total Valuation</span>
                       <h3 className="font-heading text-2xl font-black text-white">₹{totalValuation.toLocaleString()}</h3>
-                      <p className="text-[10px] text-slate-500 font-medium">Projected gross portfolio value.</p>
+                      <p className="text-[10px] text-slate-500 font-medium">Gross portfolio</p>
+                    </div>
+                    <div className="glass-card stat-glow rounded-2xl p-5 space-y-2 transition-all">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">Payment Records</span>
+                      <h3 className="font-heading text-2xl font-black text-indigo-400">{payments.length}</h3>
+                      <p className="text-[10px] text-slate-500 font-medium">Total transactions</p>
                     </div>
                   </div>
 
-                  {/* FINANCIAL TABLE */}
-                  <div className="bg-slate-900/20 border border-slate-900 rounded-2xl p-6 space-y-6">
-                    <h3 className="font-heading text-xs font-bold text-slate-400 uppercase tracking-widest">Recent Cash Flow Inflow</h3>
-                    <div className="space-y-4">
+                  {/* Paid Bookings */}
+                  <div className="glass-card rounded-2xl p-6 space-y-4">
+                    <h3 className="font-heading text-xs font-bold text-slate-400 uppercase tracking-widest">Paid Bookings</h3>
+                    <div className="space-y-3">
                       {bookings.filter(b => b.paymentStatus === 'PAID' || b.paymentStatus === 'Success').map(b => (
-                        <div key={b.id} className="flex justify-between items-center text-xs py-3.5 border-b border-slate-900/50">
-                          <div>
-                            <span className="font-mono text-[10px] text-indigo-400 font-bold mr-2">{b.id}</span>
-                            <span className="font-bold text-white uppercase">{b.name}</span>
-                            <span className="text-slate-500 text-[10px] ml-2">({b.service})</span>
+                        <div key={b.id} className="flex justify-between items-center text-xs py-3 border-b border-slate-800/50 hover:bg-slate-900/20 px-2 rounded transition-colors">
+                          <div className="flex items-center gap-3">
+                            <span className="w-2 h-2 bg-emerald-400 rounded-full" />
+                            <div>
+                              <span className="font-bold text-white uppercase">{b.name}</span>
+                              <span className="text-slate-500 text-[10px] ml-2">{b.service} · {b.date}</span>
+                            </div>
                           </div>
                           <span className="font-heading font-black text-emerald-400">+₹{b.price.toLocaleString()}</span>
                         </div>
                       ))}
+                      {bookings.filter(b => b.paymentStatus === 'PAID' || b.paymentStatus === 'Success').length === 0 && (
+                        <p className="text-center text-xs text-slate-500 py-6 border border-dashed border-slate-800 rounded-xl">No paid bookings yet</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Payment Records Table */}
+                  <div className="glass-card rounded-2xl p-6 space-y-4">
+                    <h3 className="font-heading text-xs font-bold text-slate-400 uppercase tracking-widest">Payment Transaction Records</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-slate-800">
+                            <th className="text-left p-3 text-[8px] font-bold text-slate-500 uppercase tracking-widest">Transaction ID</th>
+                            <th className="text-left p-3 text-[8px] font-bold text-slate-500 uppercase tracking-widest">Amount</th>
+                            <th className="text-left p-3 text-[8px] font-bold text-slate-500 uppercase tracking-widest">Method</th>
+                            <th className="text-left p-3 text-[8px] font-bold text-slate-500 uppercase tracking-widest">Status</th>
+                            <th className="text-left p-3 text-[8px] font-bold text-slate-500 uppercase tracking-widest">Date</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {payments.length === 0 ? (
+                            <tr><td colSpan={5} className="text-center py-8 text-xs text-slate-500">No payment records</td></tr>
+                          ) : payments.map(p => (
+                            <tr key={p.id} className="border-b border-slate-800/30 hover:bg-slate-900/20 transition-colors">
+                              <td className="p-3 font-mono text-[10px] text-indigo-400 font-bold">{p.transactionId || p.id.slice(0, 12)}</td>
+                              <td className="p-3 font-heading font-black text-white text-xs">₹{p.amount.toLocaleString()}</td>
+                              <td className="p-3 text-xs text-slate-300">{p.method}</td>
+                              <td className="p-3">
+                                <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold ${
+                                  p.status === 'Success' || p.status === 'PAID' ? 'bg-emerald-500/10 text-emerald-400' :
+                                  p.status === 'Failed' ? 'bg-red-500/10 text-red-400' :
+                                  p.status === 'Refunded' ? 'bg-violet-500/10 text-violet-400' :
+                                  'bg-amber-500/10 text-amber-400'
+                                }`}>{p.status}</span>
+                              </td>
+                              <td className="p-3 text-[10px] text-slate-500">{p.paidAt ? new Date(p.paidAt).toLocaleDateString('en-IN') : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 </div>
@@ -1420,57 +1652,116 @@ export default function App() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {teamMembers.map(t => (
-                      <div key={t.name} className="bg-slate-900/20 border border-slate-900 rounded-2xl p-5 space-y-4 relative group">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center font-heading text-lg font-black text-white">
-                            {t.name.slice(0,2).toUpperCase()}
+                    {teamMembers.map(t => {
+                      const crewShoots = bookings.filter(b => b.assignedTo === t.name && b.status !== 'Completed' && b.status !== 'Cancelled')
+                      const shareRatePct = (t.share || 40) / 100
+                      const totalEarnings = bookings.filter(b => b.assignedTo === t.name && (b.paymentStatus === 'PAID' || b.paymentStatus === 'Success')).reduce((sum, b) => sum + (b.price * shareRatePct), 0)
+                      const pendingEarnings = bookings.filter(b => b.assignedTo === t.name && (b.paymentStatus === 'Pending' || b.paymentStatus === 'PENDING')).reduce((sum, b) => sum + (b.price * shareRatePct), 0)
+                      
+                      return (
+                        <div key={t.name} className="glass-card stat-glow rounded-2xl p-5 space-y-4 relative group transition-all">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center font-heading text-lg font-black text-white">
+                              {t.name.slice(0,2).toUpperCase()}
+                            </div>
+                            <div>
+                              <h4 className="font-heading text-sm font-bold text-white uppercase">{t.name}</h4>
+                              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">{t.role}</p>
+                            </div>
                           </div>
-                          <div>
-                            <h4 className="font-heading text-sm font-bold text-white uppercase">{t.name}</h4>
-                            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">{t.role}</p>
-                          </div>
-                        </div>
 
-                        <div className="space-y-2 border-t border-slate-900/60 pt-4 text-xs">
-                          <div className="flex justify-between">
-                            <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Specialty</span>
-                            <span className="text-slate-300 font-medium text-[11px]">{t.specialty}</span>
+                          <div className="space-y-2 border-t border-slate-900/60 pt-4 text-xs">
+                            <div className="flex justify-between">
+                              <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Specialty</span>
+                              <span className="text-slate-300 font-medium text-[11px]">{t.specialty}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Availability</span>
+                              <button
+                                onClick={() => handleToggleCrewAvailabilityAdmin(t.id!, t.availability)}
+                                className={`px-2 py-0.5 rounded text-[8px] font-bold tracking-widest uppercase cursor-pointer border-0 transition-colors ${
+                                  t.availability === 'AVAILABLE'
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20'
+                                    : t.availability === 'ON SHOOT'
+                                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20'
+                                      : 'bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20'
+                                }`}
+                              >
+                                {t.availability}
+                              </button>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Email</span>
+                              <span className="text-slate-400 font-mono text-[10px]">{t.email || 'N/A'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Earnings ({t.share || 40}% Share)</span>
+                              <span className="text-white font-mono font-bold">
+                                ₹{totalEarnings.toLocaleString()} <span className="text-slate-500 font-normal">/</span> <span className="text-amber-400">₹{pendingEarnings.toLocaleString()}</span>
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Shoot Share / Active Shoots</span>
+                              <span className="text-slate-300 font-mono font-semibold">{t.share || 40}% · <span className="text-white font-bold">{t.activeShoots}</span></span>
+                            </div>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Availability</span>
+
+                          {/* Crew upcoming schedule list */}
+                          <div className="space-y-1.5 pt-3 border-t border-slate-900/60">
+                            <span className="text-slate-500 font-bold uppercase tracking-widest text-[8px] block">Upcoming Shoots ({crewShoots.length})</span>
+                            {crewShoots.length === 0 ? (
+                              <span className="text-[10px] text-slate-600 italic block">No upcoming shoots</span>
+                            ) : (
+                              <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
+                                {crewShoots.map(s => (
+                                  <div key={s.id} className="flex justify-between items-center bg-slate-950/40 p-1.5 rounded border border-slate-900/40 text-[9px]">
+                                    <span className="text-slate-300 font-bold truncate max-w-[100px]" title={s.name}>{s.name}</span>
+                                    <span className="text-indigo-400 font-mono font-bold">{s.date}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              setBookingFilterCrew(t.name)
+                              setAdminTab('BOOKINGS')
+                            }}
+                            className="w-full mt-1 py-2 bg-slate-900/60 hover:bg-slate-800 text-[9px] text-slate-300 font-bold uppercase tracking-wider rounded-lg border border-slate-800 transition-colors cursor-pointer"
+                          >
+                            View Crew Schedule
+                          </button>
+
+                          <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
-                              onClick={() => handleToggleCrewAvailabilityAdmin(t.id!, t.availability)}
-                              className={`px-2 py-0.5 rounded text-[8px] font-bold tracking-widest uppercase cursor-pointer border-0 ${
-                                t.availability === 'AVAILABLE'
-                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                  : t.availability === 'ON SHOOT'
-                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                    : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                              }`}
+                              onClick={() => {
+                                setEditCrewId(t.id!)
+                                setEditCrewName(t.name)
+                                setEditCrewEmail(t.email || '')
+                                setEditCrewRole(t.role)
+                                setEditCrewSpecialty(t.specialty)
+                                setEditCrewRate(String(t.share || 40))
+                                setEditCrewAvailability(t.availability)
+                                setEditCrewPassword('')
+                                setShowEditCrewModal(true)
+                              }}
+                              className="text-slate-500 hover:text-indigo-400 bg-transparent border-0 cursor-pointer p-1.5 transition-colors"
+                              title="Edit Partner"
                             >
-                              {t.availability}
+                              <Edit size={13} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteCrew(t.id!, t.name)}
+                              className="text-slate-500 hover:text-red-400 bg-transparent border-0 cursor-pointer p-1.5 transition-colors"
+                              title="Remove Partner"
+                            >
+                              <Trash2 size={13} />
                             </button>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Email</span>
-                            <span className="text-slate-400 font-mono text-[10px]">{t.email || 'N/A'}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">Active Shoots</span>
-                            <span className="text-white font-mono font-bold">{t.activeShoots}</span>
-                          </div>
                         </div>
-
-                        <button
-                          onClick={() => handleDeleteCrew(t.id!, t.name)}
-                          className="absolute top-2 right-2 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity bg-transparent border-0 cursor-pointer p-2"
-                          title="Remove Partner"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -1728,10 +2019,11 @@ export default function App() {
 
       {/* DISPATCH DETAIL MODAL */}
       {selectedBooking && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl px-4 select-none">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl px-4 select-none animate-fade-in">
           <div className="absolute inset-0 cursor-default" onClick={() => setSelectedBooking(null)} />
-          <div className="relative glass-neon w-full max-w-xl bg-slate-950 p-6 border border-slate-900 z-10 space-y-6 text-left rounded-2xl">
-            <div className="flex justify-between items-start pb-3 border-b border-slate-900">
+          <div className="relative glass-card w-full max-w-2xl bg-slate-950/95 p-6 z-10 space-y-5 text-left rounded-2xl animate-reveal-up max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex justify-between items-start pb-3 border-b border-slate-800">
               <div>
                 <span className="font-mono text-[10px] text-indigo-400 font-bold block mb-1">{selectedBooking.id}</span>
                 <h3 className="font-heading text-md font-black text-white uppercase">{selectedBooking.name}</h3>
@@ -1741,26 +2033,67 @@ export default function App() {
               </button>
             </div>
 
+            {/* Quick Actions Bar */}
+            <div className="flex flex-wrap gap-2">
+              {/* WhatsApp Button */}
+              <a
+                href={`https://wa.me/${(selectedBooking.phoneCode || '+91').replace('+', '')}${selectedBooking.phoneNumber?.replace(/\s/g, '')}?text=${encodeURIComponent(`Hi ${selectedBooking.name}, this is MR. CINEMATICSHOOT regarding your booking ${selectedBooking.id} for ${selectedBooking.service} on ${selectedBooking.date}. Let's discuss the details!`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="wa-btn px-3.5 py-2 rounded-lg text-white text-[9px] font-bold uppercase tracking-wider flex items-center gap-1.5 no-underline"
+              >
+                <MessageCircle size={12} /> WhatsApp
+              </a>
+              {/* Phone Call */}
+              <a
+                href={`tel:${selectedBooking.phoneCode || '+91'}${selectedBooking.phoneNumber}`}
+                className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 rounded-lg text-slate-300 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1.5 no-underline border border-slate-800 transition-colors"
+              >
+                <Phone size={12} /> Call
+              </a>
+              {/* Status Actions */}
+              {['Pending', 'Confirmed', 'In Progress', 'Completed', 'Cancelled'].map(s => (
+                <button
+                  key={s}
+                  onClick={async () => {
+                    await supabase.from('bookings').update({ status: s }).eq('id', selectedBooking.id)
+                    toast.success(`Status → ${s}`)
+                    setSelectedBooking({ ...selectedBooking, status: s })
+                    loadDatabase()
+                  }}
+                  disabled={selectedBooking.status === s}
+                  className={`px-2.5 py-2 rounded-lg text-[8px] font-bold uppercase tracking-wider cursor-pointer border transition-all ${
+                    selectedBooking.status === s
+                      ? 'bg-indigo-600 text-white border-indigo-500'
+                      : 'bg-slate-900/60 text-slate-400 hover:text-white border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+
+            {/* Details Grid */}
             <div className="grid grid-cols-2 gap-x-6 gap-y-4 text-xs">
               <div className="space-y-1">
                 <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Service Package</span>
                 <span className="font-semibold text-white uppercase">{selectedBooking.service}</span>
               </div>
               <div className="space-y-1">
-                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Target shoot Date</span>
+                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Shoot Date</span>
                 <span className="font-semibold text-white">{selectedBooking.date}</span>
               </div>
               <div className="space-y-1">
-                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Contact details</span>
+                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Contact</span>
                 <span className="font-medium text-slate-300">{selectedBooking.email}</span>
                 <span className="block text-slate-400 font-mono text-[10px] mt-0.5">{selectedBooking.phoneNumber}</span>
               </div>
               <div className="space-y-1">
-                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Preferred Call Time</span>
+                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Preferred Time</span>
                 <span className="font-semibold text-white">{selectedBooking.preferredTime || 'Anytime'}</span>
               </div>
 
-              <div className="col-span-2 space-y-1 border-t border-slate-900 pt-3">
+              <div className="col-span-2 space-y-1 border-t border-slate-800 pt-3">
                 <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Shoot Location</span>
                 <p className="font-medium text-slate-300 leading-relaxed">
                   {selectedBooking.locationVenue && `${selectedBooking.locationVenue}, `}
@@ -1771,31 +2104,69 @@ export default function App() {
                 </p>
               </div>
 
-              <div className="col-span-2 space-y-1 border-t border-slate-900 pt-3">
-                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Special Requirements / Message</span>
-                <p className="text-slate-400 italic font-medium leading-relaxed bg-slate-900/20 p-3.5 rounded-lg border border-slate-900">
-                  "{selectedBooking.message}"
-                </p>
+              {selectedBooking.message && (
+                <div className="col-span-2 space-y-1 border-t border-slate-800 pt-3">
+                  <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Special Requirements</span>
+                  <p className="text-slate-400 italic font-medium leading-relaxed bg-slate-900/30 p-3 rounded-lg border border-slate-800">
+                    "{selectedBooking.message}"
+                  </p>
+                </div>
+              )}
+
+              {/* Payment & Assignment Row */}
+              <div className="space-y-2 border-t border-slate-800 pt-3">
+                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Payment</span>
+                <span className="font-heading font-black text-emerald-400 block">₹{selectedBooking.price.toLocaleString()}</span>
+                <div className="flex gap-1.5">
+                  {['Pending', 'Success'].map(ps => (
+                    <button
+                      key={ps}
+                      onClick={async () => {
+                        await supabase.from('bookings').update({ payment_status: ps }).eq('id', selectedBooking.id)
+                        toast.success(`Payment → ${ps}`)
+                        setSelectedBooking({ ...selectedBooking, paymentStatus: ps })
+                        loadDatabase()
+                      }}
+                      className={`px-2 py-1 rounded text-[8px] font-bold uppercase tracking-wider cursor-pointer border transition-all ${
+                        selectedBooking.paymentStatus === ps
+                          ? ps === 'Success' ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-amber-600 text-white border-amber-500'
+                          : 'bg-slate-900/60 text-slate-500 border-slate-800 hover:text-white'
+                      }`}
+                    >
+                      {ps}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="space-y-1 border-t border-slate-900 pt-3">
-                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Payment Share Rate</span>
-                <span className="font-heading font-black text-emerald-400">₹{selectedBooking.price.toLocaleString()}</span>
-                <span className="text-[9px] text-slate-500 block uppercase font-bold mt-0.5">Status: {selectedBooking.paymentStatus}</span>
-              </div>
-
-              <div className="space-y-1 border-t border-slate-900 pt-3">
-                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Assigned partner</span>
-                <span className="font-semibold text-white uppercase">{selectedBooking.assignedTo}</span>
+              <div className="space-y-2 border-t border-slate-800 pt-3">
+                <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest">Assign Creator</span>
+                <select
+                  value={selectedBooking.assignedTo}
+                  onChange={async (e) => {
+                    const crewName = e.target.value
+                    const member = teamMembers.find(t => t.name === crewName)
+                    await supabase.from('bookings').update({ assigned_creator_id: member?.id || null }).eq('id', selectedBooking.id)
+                    toast.success(`Assigned → ${crewName}`)
+                    setSelectedBooking({ ...selectedBooking, assignedTo: crewName })
+                    loadDatabase()
+                  }}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="UNASSIGNED">Unassigned</option>
+                  {teamMembers.map(t => (
+                    <option key={t.id} value={t.name}>{t.name} — {t.role}</option>
+                  ))}
+                </select>
               </div>
             </div>
 
-            <div className="pt-2 border-t border-slate-900 flex justify-end gap-3">
+            <div className="pt-2 border-t border-slate-800 flex justify-end gap-3">
               <button
                 onClick={() => setSelectedBooking(null)}
                 className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-heading text-[9px] font-black tracking-widest rounded-lg uppercase cursor-pointer border-0"
               >
-                Close Dispatch
+                Close
               </button>
             </div>
           </div>
@@ -1936,12 +2307,14 @@ export default function App() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Hourly Rate (₹)</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Shoot Share (%)</label>
                   <input
                     type="number"
                     value={newCrewRate}
                     onChange={(e) => setNewCrewRate(e.target.value)}
-                    placeholder="2000"
+                    placeholder="40"
+                    min="1"
+                    max="100"
                     className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
                     required
                   />
@@ -1962,6 +2335,121 @@ export default function App() {
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-heading text-[9px] font-black tracking-widest rounded-lg uppercase cursor-pointer border-0"
               >
                 Enroll Creative Partner
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      {/* EDIT PARTNER MODAL */}
+      {showEditCrewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl px-4 select-none animate-fade-in">
+          <div className="absolute inset-0 cursor-default" onClick={() => setShowEditCrewModal(false)} />
+          <form onSubmit={handleEditCrew} className="relative glass-card w-full max-w-md bg-slate-950 p-6 border border-slate-900 z-10 space-y-6 text-left rounded-2xl animate-reveal-up">
+            <div className="flex justify-between items-start pb-3 border-b border-slate-900">
+              <h3 className="font-heading text-sm font-black text-white uppercase">Edit Creative Partner</h3>
+              <button type="button" onClick={() => setShowEditCrewModal(false)} className="text-slate-500 hover:text-white bg-transparent border-0 cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Full Name</label>
+                  <input
+                    type="text"
+                    value={editCrewName}
+                    onChange={(e) => setEditCrewName(e.target.value)}
+                    className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Specialty Role</label>
+                  <input
+                    type="text"
+                    value={editCrewRole}
+                    onChange={(e) => setEditCrewRole(e.target.value)}
+                    className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Email Address</label>
+                  <input
+                    type="email"
+                    value={editCrewEmail}
+                    onChange={(e) => setEditCrewEmail(e.target.value)}
+                    className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Access Key (New Password)</label>
+                  <input
+                    type="password"
+                    value={editCrewPassword}
+                    placeholder="Leave blank to keep same"
+                    onChange={(e) => setEditCrewPassword(e.target.value)}
+                    className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Specific Specialty</label>
+                  <input
+                    type="text"
+                    value={editCrewSpecialty}
+                    onChange={(e) => setEditCrewSpecialty(e.target.value)}
+                    className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Shoot Share (%)</label>
+                  <input
+                    type="number"
+                    value={editCrewRate}
+                    onChange={(e) => setEditCrewRate(e.target.value)}
+                    min="1"
+                    max="100"
+                    className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Availability</label>
+                <select
+                  value={editCrewAvailability}
+                  onChange={(e) => setEditCrewAvailability(e.target.value as any)}
+                  className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer"
+                >
+                  <option value="AVAILABLE">AVAILABLE</option>
+                  <option value="ON SHOOT">ON SHOOT</option>
+                  <option value="LEAVE">LEAVE</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-900 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowEditCrewModal(false)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-heading text-[9px] font-black tracking-widest rounded-lg uppercase cursor-pointer border-0"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-heading text-[9px] font-black tracking-widest rounded-lg uppercase cursor-pointer border-0 shadow-md shadow-indigo-600/10"
+              >
+                Update Creative Partner
               </button>
             </div>
           </form>
@@ -2020,11 +2508,13 @@ export default function App() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Hourly Rate (₹)</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Shoot Share (%)</label>
                   <input
                     type="number"
                     value={hireHourlyRate}
                     onChange={(e) => setHireHourlyRate(e.target.value)}
+                    min="1"
+                    max="100"
                     className="w-full text-xs border border-slate-800 rounded-lg px-3.5 py-2.5 bg-slate-950 text-white focus:outline-none focus:border-indigo-500 transition-colors"
                     required
                   />
