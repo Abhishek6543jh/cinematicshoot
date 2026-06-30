@@ -1733,7 +1733,7 @@ export default function App() {
                             View Crew Schedule
                           </button>
 
-                          <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="absolute top-3 right-3 flex gap-0.5 bg-slate-950/80 p-1.5 rounded-xl border border-slate-900 shadow-md">
                             <button
                               onClick={() => {
                                 setEditCrewId(t.id!)
@@ -1741,19 +1741,19 @@ export default function App() {
                                 setEditCrewEmail(t.email || '')
                                 setEditCrewRole(t.role)
                                 setEditCrewSpecialty(t.specialty)
-                                setEditCrewRate(String(t.share || 40))
+                                setEditCrewRate(String(t.share || 70))
                                 setEditCrewAvailability(t.availability)
                                 setEditCrewPassword('')
                                 setShowEditCrewModal(true)
                               }}
-                              className="text-slate-500 hover:text-indigo-400 bg-transparent border-0 cursor-pointer p-1.5 transition-colors"
+                              className="text-slate-400 hover:text-indigo-400 bg-transparent border-0 cursor-pointer p-1.5 transition-colors"
                               title="Edit Partner"
                             >
                               <Edit size={13} />
                             </button>
                             <button
                               onClick={() => handleDeleteCrew(t.id!, t.name)}
-                              className="text-slate-500 hover:text-red-400 bg-transparent border-0 cursor-pointer p-1.5 transition-colors"
+                              className="text-slate-400 hover:text-red-400 bg-transparent border-0 cursor-pointer p-1.5 transition-colors"
                               title="Remove Partner"
                             >
                               <Trash2 size={13} />
@@ -1814,7 +1814,7 @@ export default function App() {
 
                         <div className="border-t border-slate-900/60 pt-4 flex justify-between items-center">
                           <span className={`px-2.5 py-0.5 border text-[9px] font-bold tracking-widest uppercase rounded ${
-                            a.status === 'PENDING REVIEW' 
+                            a.status === 'PENDING REVIEW' || a.status === 'APPLIED'
                               ? 'border-amber-500/20 bg-amber-500/5 text-amber-400' 
                               : a.status === 'APPROVED' 
                                 ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-400' 
@@ -1824,7 +1824,7 @@ export default function App() {
                           </span>
 
                           <div className="flex gap-2">
-                            {a.status === 'PENDING REVIEW' && (
+                            {(a.status === 'PENDING REVIEW' || a.status === 'APPLIED') && (
                               <>
                                 <button
                                   onClick={() => handleTriggerHireModal(a.id)}
